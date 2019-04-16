@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 
 import nibabel as nib
 
-from skimage import color, data, restoration, filters, exposure
+#from skimage import color, data, restoration, filters, exposure
+from skimage import filters
 
 import sys
 
@@ -32,6 +33,7 @@ maskname = False
 withotsu = True
 pctrim = False
 slax = 2
+Nbins=256
 
 try:
     if sys.argv[5] != "none" :
@@ -122,60 +124,68 @@ def Eu_v (distu, valsu, filt, distv) :
 
 
 def map_Eu_v(histval,uest, v):
-  histstepback = 2 * histval[0] - histval[1]
-  histvallast = np.hstack((histstepback,histval))[0:-1]
-  ustepback = 2*uest[0] - uest[1]
-  uestlast = np.hstack((ustepback,uest))[0:-1]
-  vbins = np.searchsorted(histval,v)-1
-  vwidths = histval - histvallast
-  uwidths = uest - uestlast
-  vbindist = (v - histvallast[vbins]) / vwidths[vbins]
-  u = uestlast[vbins] + uwidths[vbins] * vbindist[vbins]
+  # histval are bin centers, this is because uest
+  # is estimated by convolution, so need to use E(v)
+  # and E(u) values for each bin.
+  # Could just use np.interp here, however it will result
+  # in clipping at the max and min values, which loses a
+  # bin either end, so a bit more elegant to do it ourselves
+  vwidths = histval[1:] - histval[:-1]
+  # Clipping means we project linearly past the ends of the
+  # array based on the first and last intervals
+  vbins = np.clip(np.searchsorted(histval,v)-1,0,histval.shape[0]-2)
+  vbindist = (v - histval[vbins]) / vwidths[vbins]
+  uwidths = uest[1:] - uest[:-1]
+  u = uest[vbins] + uwidths[vbins] * vbindist[vbins]
   return u
 
 
 def map_quantu_v(binvals, distv, distu, v):
   # Use the idea the voxel value quantiles should remain the
   # same transferring between the distributions
-  # Quite like this alternative to the convolution (should
-  # be more stable) but needs some tidying to deal with
-  # empty bins in the target distribution (interpolating
-  # across bins), possibly an array for each bin with index
-  # of next non-zero bin
+  # Doesn't work properly, remapped histogram comes out very spiky
+  # and CDF closer to the original than that of the filtered
+  # distribution. If working correctly then the resulting CDF
+  # should resembled that of the filtered distribution
   # Also, bin values are the bin centres, so there's a slight
   # offset issue to deal with, but minor so long as the bins
   # are narrow. Not entirely sure using correct binwidths for
   # the interpolation (might be shifted by one)
-  cumv = np.cumsum(distv)/float(np.sum(distv))
-  cumvnext = np.hstack((cumv,1))[1:]
-  cumvdiffs = cumvnext - cumv
-  # cumvstart : prev binval
-  binstepback = 2*binvals[0] - binvals[1]
-  binvalstart = np.hstack((binstepback,binvals))[0:-1]
 
-  vbin = np.clip(np.searchsorted(binvals,v),1,None)-1
-  binwidths = binvals - binvalstart
-  bindist = (v - binvals[vbin])/ binwidths[vbin]
-  vpercentile = cumv[vbin] + cumvdiffs[vbin] * bindist
+  # cumv are to the bin upper edge. fudge a bit and approximate
+  # the middle value
+  cumv = np.cumsum(distv)/float(np.sum(distv))
+  cumv = np.hstack((0,cumv))
+  cumv = (cumv[0:-1] + cumv[1:])/2
+  cumvdiffs = cumv[1:] - cumv[:-1]
+
+  vwidths = binvals[1:] - binvals[:-1]
+  vbin = np.clip(np.searchsorted(binvals,v)-1,0,cumv.shape[0]-2)
+  vbindist = (v - binvals[vbin])/ vwidths[vbin]
+  
+  vpercentile = cumv[vbin] + cumvdiffs[vbin] * vbindist
 
   # cumu, now dealing with the quantiles and project
   # back to histval
   cumu = np.cumsum(distu)/float(np.sum(distu))
-  # cumustart : starts at CDF=0
-  cumunext = np.hstack((cumu,1))[1:]
-  # Problem here, flat regions have zero width
-  # Solution, simply don't interpolate across them,
-  # we're at the tail of one part of the distribution,
-  # interpolating into p=0 regions is wrong
-  cumuquantwidths = cumunext - cumu
+  cumu = np.hstack((0,cumv))
+  cumu = (cumu[0:-1] + cumu[1:])/2
+  cumudiffs = cumu[1:] - cumu[:-1]
+
   with np.errstate(divide='ignore'):
-    cumuquantscale = 1 / cumuquantwidths
+    cumuquantscale = 1 / cumudiffs
+  # This is wrong: it's saying that if the percentile is in the
+  # next higher bin it gets stuck in the current one if the adjacent
+  # bin is the same, should actually be a leap. Could be one cause of
+  # spicky-ness
   cumuquantscale[np.isinf(cumuquantscale)] = 0
-  quantbin = np.clip(np.searchsorted(cumu,vpercentile),0,None)-1
+  quantbin = np.clip(np.searchsorted(cumu,vpercentile)-1,0,cumu.shape[0]-2)
   quantbindist = (vpercentile - cumu[quantbin]) * \
     cumuquantscale[quantbin]
+  # vwidths are intervals for values bins represent for both
+  # original and filtered histogram
   quantmappedu = binvals[quantbin] + \
-    cumuquantwidths[quantbin] * quantbindist[quantbin]
+    vwidths[quantbin] * quantbindist[quantbin]
   return quantmappedu
 
 
@@ -241,13 +251,14 @@ datalog = np.copy(inimgdata)
 datalog[mask] = np.log(datalog[mask])
 datalog[np.logical_not(mask)] = 0
 datalogmasked = datalog[mask]
-(orighist, orighistval) = exposure.histogram(datamasked)
-(hist,histval) = exposure.histogram(datalogmasked)
+(orighist, orighistedge) = np.histogram(datamasked,Nbins)
+(hist,histvaledge) = np.histogram(datalogmasked,Nbins)
 
-histwidth = histval[-1] - histval[0]
+# For filter purposes histval (bin centre) is the better choice
+histwidth = histvaledge[-1] - histvaledge[0]
+histval = (histvaledge[0:-1] + histvaledge[1:])/2
 histbinwidth = histwidth / (histval.shape[0]-1)
 filt, filtx, filtmid, filtbins = symGaussFilt(FWHM, histbinwidth)
-
 
 
 histfilt = wiener_filter_withpad(hist, filt, filtmid, Z)
@@ -269,6 +280,7 @@ if(0) :
 
 with np.errstate(divide='ignore', invalid='ignore'):
   ratio = datanew / inimgdata
+  #ratioq = datanewquant / inimgdata
 
 
 fig, ax = plt.subplots(nrows=2, ncols=2,figsize=(18, 16))
@@ -288,6 +300,13 @@ ax[pos].plot(histval,histfiltclip)
 pos=(1,1)
 imslice=rearrSel(ratio)
 imgplot(ax[pos],imslice, vmin=0.8, vmax=1.2)
+if(0) :
+  pos=(2,0)
+  #imslice=rearrSel(datanewquant)
+  imgplot(ax[pos],imslice)
+  pos=(2,1)
+  imslice=rearrSel(ratioq)
+  imgplot(ax[pos],imslice, vmin=0.8, vmax=1.2)
 plt.savefig("{}.png".format(outname))
 plt.close()
 
