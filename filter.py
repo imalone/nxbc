@@ -1,15 +1,49 @@
-from skimage import filters
 import numpy as np
+import math
+import scipy.stats as stats
+import statsmodels.nonparametric.smoothers_lowess as ls
+import statsmodels.nonparametric.kernel_regression as kreg
+
+def symGaussFiltFWHM (filtFWHM, filtbinwidth):
+  sigma = filtFWHM / math.sqrt(8 * math.log(2))
+  return symGaussFilt(sigma,filtbinwidth)
 
 
 def symGaussFilt (filtsigma, filtbinwidth):
   filtsigmaNbin = filtsigma / filtbinwidth
   filtbins = int(int(np.ceil(filtsigmaNbin)*8)/2*2+1)
-  filtmid = filtbins/2 # filtbins is odd...
+  filtmid = filtbins//2 # filtbins is odd...
+  filtx = np.arange(-filtmid,filtmid+1) * filtbinwidth
   filtz = np.arange(-filtmid,filtmid+1) / filtsigmaNbin
   filtnorm = np.sqrt(2 * filtsigmaNbin ** 2 *np.pi)
   filt = np.exp ( -filtz**2 / 2) / filtnorm
+  return filt, filtx, filtmid, filtbins
+
+
+def symLorentz (FWHM, filtbinwidth):
+  widthNbin = FWHM / filtbinwidth
+  filtbins = int(int(np.ceil(widthNbin)*8)/2*2+1)
+  filtmid = filtbins//2 # filtbins is odd...
   filtx = np.arange(-filtmid,filtmid+1) * filtbinwidth
+  filtz = np.arange(-filtmid,filtmid+1) / widthNbin
+  filtnum = 1 / np.pi / widthNbin
+  filt = filtnum / (1 + filtz**2)
+  return filt, filtx, filtmid, filtbins
+
+
+def genGaussianFWHM (FWHM, filtbinwidth, beta):
+  alpha = FWHM * math.pow(math.log(2), -1.0/beta)
+  return genGaussian(alpha,filtbinwidth,beta)
+
+
+def genGaussian (alpha, filtbinwidth, beta):
+  alphaNbin = alpha / filtbinwidth
+  filtbins = int(int(np.ceil(alphaNbin)*8)/2*2+1)
+  filtmid = filtbins//2 # filtbins is odd...
+  filtx = np.arange(-filtmid,filtmid+1) * filtbinwidth
+  filtz = np.arange(-filtmid,filtmid+1) / alphaNbin
+  num = beta / (2 * alphaNbin * math.gamma(1/beta))
+  filt = num * np.exp(-np.power(np.abs(filtz),beta))
   return filt, filtx, filtmid, filtbins
 
 
@@ -30,7 +64,6 @@ def wiener_filter_withpad(signal, filt, filtmid, Z):
     'constant', constant_values=(padval, padval))
   filtpad = np.pad(filt, (0,sigpad.shape[0]-filt.shape[0]),
     'constant', constant_values=(0, 0))
-
   F = np.fft.fft(sigpad)
   H = np.fft.fft(filtpad)
   H2 = np.conj(H)*H
@@ -45,10 +78,13 @@ def wiener_filter_withpad(signal, filt, filtmid, Z):
   return sigfilt[slice(signal.shape[0])]
 
 
-def Eu_v (distu, valsu, filt, distv) :
+def Eu_v (distu, valsu, filt, distv, filtmid=None) :
+  filtlen = filt.shape[0]
+  if filtmid is None:
+    filtmid = filtlen // 2
   u1 = distu * valsu
-  conv1 = np.convolve(u1,filt,mode="same")
-  conv2 = np.convolve(distu,filt,mode="same")
+  conv1 = np.convolve(u1,filt,mode="full")[filtlen-1-filtmid:-filtmid]
+  conv2 = np.convolve(distu,filt,mode="full")[filtlen-1-filtmid:-filtmid]
   uest = conv1/conv2
   #plt.subplot(4,1,1)
   #plt.plot(u1)
@@ -125,3 +161,203 @@ def map_quantu_v(binvals, distv, distu, v):
   quantmappedu = binvals[quantbin] + \
     vwidths[quantbin] * quantbindist[quantbin]
   return quantmappedu
+
+
+def kernelfntri(x,width):
+    ax=np.fabs(x)
+    return (width-ax).clip(0,None)/width**2
+
+  
+def kernelfngauss(x,width):
+    return np.exp(-x**2/(2*width**2))/math.sqrt(2*math.pi*width**2)
+
+
+# Several times faster than the sm.nonparametric.KDEUnivariate equivalent
+# which matters if we need to repeat it for optimisation
+def kdepdf (x, data, bw, kernfn=kernelfngauss):
+    pdf = np.zeros(x.shape)
+    for N in range(x.shape[0]):
+        searchwidth=3*bw
+        thisset = np.argwhere(np.logical_and(data <= x[N]+searchwidth, data >= x[N]-searchwidth))
+        pdf[N] = kernfn(data[thisset]-x[N],bw).sum()
+    return pdf
+
+
+def distrib_histo(data, Nbins):
+    hist,histvaledge = np.histogram(data,Nbins)
+    histwidth = histvaledge[-1] - histvaledge[0]
+    histval = (histvaledge[0:-1] + histvaledge[1:])/2
+    histbinwidth = histwidth / (histval.shape[0]-1)
+    return hist,histvaledge,histval,histbinwidth
+
+
+def distrib_kde(data,Nbins, bw=None, kernfn=kernelfngauss):
+    histvaledge = np.linspace(data.min(),data.max(),
+        num=Nbins+1)
+    histwidth = histvaledge[-1] - histvaledge[0]
+    histval = (histvaledge[0:-1] + histvaledge[1:])/2
+    histbinwidth = histwidth / (histval.shape[0]-1)
+    if bw is None:
+      bw = histbinwidth
+    hist = kdepdf(histval, data, bw, kernfn=kernfn)
+    return hist,histvaledge,histval,histbinwidth
+
+
+def getblockstats(data, mask, blocksize=7, sampsize=100):
+  masklist = np.argwhere(mask)
+  blockneg=-blocksize//2
+  blockpos=blocksize//2
+  blockrange=np.arange(blockneg,blockpos)
+  blockvar = []
+  blockmean = []
+  blockcohen2 = []
+  blockn = []
+  for choice in np.random.choice(range(masklist.shape[0]), size=sampsize):
+    blockcentre = masklist[choice]
+    includedallax = np.ones(masklist.shape[0])
+    for ax in range(len(blockcentre)):
+      # thought where was tuple of index arrays, but if [choice]
+      # indexes then not right?
+      included = np.logical_and(masklist[:,ax] >= blockcentre[ax]
+                                + blockneg,
+                                masklist[:,ax] < blockcentre[ax] + blockpos)
+      includedallax = np.logical_and(included, includedallax)
+    mget=masklist[includedallax]
+    blockvals = data[mget[:,0],mget[:,1], mget[:,2]]
+    blockvar.append(np.var(blockvals,ddof=1))
+    blockmean.append(np.average(blockvals))
+    blockn.append(includedallax.sum())
+  _m = np.average(blockmean, weights=blockn)
+  _v = np.average((blockmean-_m)**2,weights=np.sqrt(blockn)) * \
+    len(blockmean)/(len(blockmean)-1)
+  blockmeanvar=_v
+  return np.mean(blockmean), blockmeanvar, np.mean(blockvar), np.var(blockvar)
+#bs = range(3,20)#stats=[]
+#for N in range(len(bs)):
+#  stats.append(getblockstats(datalog, mask, bs[N]))
+#bmm, bmv, bvm, bvv = zip(*stats)
+
+
+def picksdexcessvar(data, mask, sampsize=100):
+  while True:
+    bsrange = np.arange(3,51,2)
+    stats=[]
+    for bs in bsrange:
+      stats.append(getblockstats(datalog, mask, bs, sampsize))
+    bmm, bmv, bvm, bvv = zip(*stats)
+    #bvvls = ls.lowess(bvv,bsrange, is_sorted=True, return_sorted=False,
+    #                  frac=0.5)
+    #bvmls = ls.lowess(bvm,bsrange, is_sorted=True, return_sorted=False)
+    bvvKreg = kreg.KernelReg(bvv,bsrange,"c")
+    bvvls = bvvKreg.fit(bsrange)[0]
+    bvmKreg = kreg.KernelReg(bvm,bsrange,"c")
+    bvmls = bvmKreg.fit(bsrange)[0]
+    bmvKreg = kreg.KernelReg(bmv,bsrange,"c")
+    bmvls = bmvKreg.fit(bsrange)[0]
+    bvvtgt = (bvvls.max() + bvvls[-1])/2
+    bvvmaxind = np.argmax(bvvls)
+    if np.isnan(bvvls.max()):
+      print(bvv)
+    print ("bvvlsmax {}, bvvlsend {}, bvvtgt {}, bvvmaxind {}".format(bvvls.max(), bvvls[-1],bvvtgt,bvvmaxind))
+    inds = np.argwhere(bvvls <= bvvtgt)
+    inds = inds[inds > bvvmaxind]
+    firstind = inds.min()
+    allvar = np.var(data[mask])
+    #s2 = allvar - bvmls[firstind]
+    bmvatmax = bmvls[bvvmaxind]
+    bvmnoiseest = bvm[0]
+    s2 = allvar - bmvatmax - bvmnoiseest
+    print (bvvls.max(), bvvls[-1], bvvtgt, firstind, bvv[firstind], bvvls[firstind], bvm[firstind], bvmls[firstind], allvar, bmvatmax, bvmnoiseest, s2)
+    if s2 > 0:
+      s = math.sqrt(s2)
+      print(s)
+      return s
+    else:
+      print ("Negative bias field variance estimate {}, may be stuck".format(s2))
+  
+
+
+def picksd(data, mask, blocksize=7, sampsize=100):
+  masklist = np.argwhere(mask)
+  blockneg=-blocksize//2
+  blockpos=blocksize//2
+  blockrange=np.arange(blockneg,blockpos)
+  blockvar = []
+  blockmean = []
+  blockcohen2 = []
+  blockn = []
+  for choice in np.random.choice(range(masklist.shape[0]), size=sampsize):
+    blockcentre = masklist[choice]
+    includedallax = np.ones(masklist.shape[0])
+    for ax in range(len(blockcentre)):
+      # thought where was tuple of index arrays, but if [choice]
+      # indexes then not right?
+      included = np.logical_and(masklist[:,ax] >= blockcentre[ax]
+                                + blockneg,
+                                masklist[:,ax] < blockcentre[ax] + blockpos)
+      includedallax = np.logical_and(included, includedallax)
+    mget=masklist[includedallax]
+    blockvals = data[mget[:,0],mget[:,1], mget[:,2]]
+    blockvar.append(np.var(blockvals,ddof=1))
+    blockmean.append(np.average(blockvals))
+    blockcohen2.append(blockvar[-1]/blockmean[-1]**2)
+    blockn.append(includedallax.sum())
+  _m = np.average(blockmean, weights=blockn)
+  _v = np.average((blockmean-_m)**2,weights=np.sqrt(blockn)) * \
+    len(blockmean)/(len(blockmean)-1)
+  blockmeanvar=_v
+  blockvaradj = np.array(blockcohen2)*_m**2
+  s = (blockmeanvar - np.average(blockvaradj, weights=blockn))
+  print(len(blockmean),_m,_v,blockmeanvar, np.average(blockvar, weights=blockn), np.average(blockvaradj, weights=blockn), s)
+  return math.sqrt(s)
+
+
+def optFWHM(hist, histbinwidth, Z=0.01, range=(0.01,1,0.005), filtfunc=symGaussFiltFWHM):
+    varlist = []
+    fwlist = []
+    for FWHM in np.arange(*range) :
+        filt, filtx, filtmid, filtbins = filtfunc(FWHM,histbinwidth)
+        histfilt = wiener_filter_withpad(hist, filt, filtmid, Z)
+        histfiltclip = np.clip(histfilt,0,None)
+        histprod = np.sqrt(hist*histfiltclip)
+        xvals = np.arange(0,hist.shape[0])
+        mv = np.average(xvals, weights=histprod)
+        var = np.average((xvals-mv)**2, weights=histprod)
+        varlist.append(var)
+        fwlist.append(FWHM)
+    varmaxind = np.array(varlist).argmax()
+    return(fwlist[varmaxind])
+
+def entropyEval(hist, histbinwidth, histval, data, fwhm, Z=0.01, filtfunc=symGaussFiltFWHM, distrib="histo"):
+    Nbins = hist.shape[0]
+    mfilt, mfiltx, mfiltmid, mfiltbins = filtfunc(fwhm, histbinwidth)
+    histfilt = wiener_filter_withpad(hist, mfilt, mfiltmid, Z)
+    histfiltclip = np.clip(histfilt,0,None)
+    uest, u1, conv1, conv2 = Eu_v(histfiltclip, histval, mfilt, hist)
+    dataupd = map_Eu_v(histval, uest, data)
+    if distrib == "histo":
+      newhist,histedge = np.histogram(dataupd,Nbins,(data.min(),data.max()))
+    elif distrib == "kde":
+      newhist,histedge,_val,_width = distrib_kde(dataupd,Nbins,bw=histbinwidth*2)
+    
+    histfiltclipsm = (histfiltclip+1.0)/(histfiltclip.sum()+Nbins)
+    newhistsm = (newhist + 1.0)/(newhist.sum()+Nbins)
+    doplt=False
+    if doplt:
+        plt.plot(histval, newhist/newhist.max()*histfilt.max())
+        plt.plot(histval, hist)
+        plt.plot(histval, histfilt)
+    rval=stats.entropy(newhistsm,histfiltclipsm)
+    #rval = np.var(datalogmaskedupd)
+    #print(rval)
+    return rval
+
+def optEntropyFWHM(hist, histbinwidth, histval, data, Z=0.01, range=(0.01,1,0.005), filtfunc=symGaussFiltFWHM, distrib="histo"):
+    varlist = []
+    fwlist = np.arange(*range)
+    for fwhm in fwlist:
+        varlist.append(entropyEval(hist,histbinwidth,histval,data,fwhm,Z,filtfunc,distrib))
+    varminind = np.array(varlist).argmin()
+    return(fwlist[varminind])
+
+
