@@ -3,6 +3,7 @@ import math
 import scipy.stats as stats
 import statsmodels.nonparametric.smoothers_lowess as ls
 import statsmodels.nonparametric.kernel_regression as kreg
+import pathos.multiprocessing as mp
 
 def symGaussFiltFWHM (filtFWHM, filtbinwidth):
   sigma = filtFWHM / math.sqrt(8 * math.log(2))
@@ -204,6 +205,7 @@ def distrib_kde(data,Nbins, bw=None, kernfn=kernelfngauss):
 
 
 def getblockstats(data, mask, blocksize=7, sampsize=100):
+  print("blocksize {}".format(blocksize))
   masklist = np.argwhere(mask)
   blockneg=-blocksize//2
   blockpos=blocksize//2
@@ -231,11 +233,117 @@ def getblockstats(data, mask, blocksize=7, sampsize=100):
   _v = np.average((blockmean-_m)**2,weights=np.sqrt(blockn)) * \
     len(blockmean)/(len(blockmean)-1)
   blockmeanvar=_v
-  return np.mean(blockmean), blockmeanvar, np.mean(blockvar), np.var(blockvar)
+  return blocksize, np.mean(blockmean), blockmeanvar, np.mean(blockvar), np.var(blockvar)
 #bs = range(3,20)#stats=[]
 #for N in range(len(bs)):
 #  stats.append(getblockstats(datalog, mask, bs[N]))
 #bmm, bmv, bvm, bvv = zip(*stats)
+
+
+def pargetblockstats(data, mask, blocksize=7, sampsize=100):
+  print("blocksize {}".format(blocksize))
+  masklist = np.argwhere(mask)
+  blockneg=-blocksize//2                 
+  blockpos=blocksize//2                  
+  blockrange=np.arange(blockneg,blockpos)
+  def getblockvar(blockchoice):
+    print ("choice {}".format(blockchoice))
+    try:
+      blockcentre = masklist[blockchoice]            
+      includedallax = np.ones(masklist.shape[0])                  
+      for ax in range(len(blockcentre)):                          
+        # thought where was tuple of index arrays, but if [choice] 
+        # indexes then not right?                                  
+        included = np.logical_and(masklist[:,ax] >= blockcentre[ax]      
+                                  + blockneg,
+                                  masklist[:,ax] < blockcentre[ax] + blockpos)
+        includedallax = np.logical_and(included, includedallax)
+      mget=masklist[includedallax]                    
+      blockvals = data[mget[:,0],mget[:,1], mget[:,2]]
+      if (np.sum(includedallax) <= 1):
+        # Maybe should resample at this point till we get a good one?
+        # Sparse masking voxels could be tricky, but that situation
+        # shouldn't really occur with normal images
+        # Would save worrying over presence of NaN later
+        print ("Hit 1 vox block")
+        return (np.NAN, np.NAN)
+      return (np.mean(blockvals), np.var(blockvals,ddof=1))
+    except KeyboardInterrupt:
+      print ("<child processor> ignores Ctl-C")
+      pass
+
+  pool = mp.Pool(processes=mp.cpu_count()*2)
+  try:
+    poolres = [pool.apply_async(getblockvar, args=(choice,))
+               for choice in np.random.choice(range(masklist.shape[0]),
+                                              size=sampsize)]
+  except KeyboardInterrupt:
+    pool.terminate()
+    print ("Loop cancelled")
+
+  pool.close()
+  reslist = [p.get() for p in poolres]
+  meanvals, varvals = zip(*filter(lambda x: x!=None, reslist))
+  blockmeanmean = np.nanmean(meanvals)
+  blockvarmean = np.nanmean(varvals)
+  blockmeanvar = np.nanvar(meanvals, ddof=1)
+  blockvarvar = np.nanvar(varvals, ddof=1)
+  return blocksize, blockmeanmean, blockmeanvar, blockvarmean, blockvarvar
+
+ 
+def picksdremmeanvar(data, mask, sampsize=100, bw=4):
+  bsrange = np.arange(3,51,2)
+  pool = mp.Pool(processes=mp.cpu_count()*2)
+  try:
+    poolres = [pool.apply_async(getblockstats, args=(data, mask, bs, sampsize))
+               for bs in bsrange]
+  except KeyboardInterrupt:
+    pool.terminate()
+    print ("Loop cancelled")
+  pool.close()
+  stats = [p.get() for p in poolres]
+
+  msize, bmm, bmv, bvm, bvv = zip(*stats)
+  print(msize)
+  #bvvls = ls.lowess(bvv,bsrange, is_sorted=True, return_sorted=False,
+  #                  frac=0.5)
+  #bvmls = ls.lowess(bvm,bsrange, is_sorted=True, return_sorted=False)
+  bvvKreg = kreg.KernelReg(bvv,bsrange,"c",bw=[bw])
+  bvvls = bvvKreg.fit(bsrange)[0]
+  bmvKreg = kreg.KernelReg(bmv,bsrange,"c",bw=[bw])
+  bmvls = bmvKreg.fit(bsrange)[0]
+  bvvmaxind = np.argmax(bvvls)
+  searchind = (bvvmaxind+1)*2 - 1
+  s2 =  bmvls[searchind]
+  print ("maxind {}, searchind {}, searchbs {}, bmv0 {} bmvind {} s2 {}".format(bvvmaxind, searchind, bsrange[searchind], bmvls[0], bmvls[searchind], s2))
+  s = math.sqrt(s2)
+  print(s)
+  return s
+
+
+def singlepicksdremmeanvar(data, mask, sampsize=100, bw=4):
+  bsrange = np.arange(3,51,2)
+  stats=[]
+  for bs in bsrange:
+    print ("bs {}".format(bs))
+    stats.append(getblockstats(data, mask, bs, sampsize))
+  msize, bmm, bmv, bvm, bvv = zip(*stats)
+  print(msize)
+  #bvvls = ls.lowess(bvv,bsrange, is_sorted=True, return_sorted=False,
+  #                  frac=0.5)
+  #bvmls = ls.lowess(bvm,bsrange, is_sorted=True, return_sorted=False)
+  bvvKreg = kreg.KernelReg(bvv,bsrange,"c",bw=[bw])
+  bvvls = bvvKreg.fit(bsrange)[0]
+  bmvKreg = kreg.KernelReg(bmv,bsrange,"c",bw=[bw])
+  bmvls = bmvKreg.fit(bsrange)[0]
+  bvvmaxind = np.argmax(bvvls)
+  searchind = (bvvmaxind+1)*2 - 1
+  s2 =  bmvls[searchind]
+  print ("maxind {}, searchind {}, searchbs {}, bmv0 {} bmvind {} s2 {}".format(bvvmaxind, searchind, bsrange[searchind], bmvls[0], bmvls[searchind], s2))
+  s = math.sqrt(s2)
+  print(s)
+  return s
+
 
 
 def picksdexcessvar(data, mask, sampsize=100):
@@ -243,7 +351,7 @@ def picksdexcessvar(data, mask, sampsize=100):
     bsrange = np.arange(3,51,2)
     stats=[]
     for bs in bsrange:
-      stats.append(getblockstats(datalog, mask, bs, sampsize))
+      stats.append(getblockstats(data, mask, bs, sampsize))
     bmm, bmv, bvm, bvv = zip(*stats)
     #bvvls = ls.lowess(bvv,bsrange, is_sorted=True, return_sorted=False,
     #                  frac=0.5)

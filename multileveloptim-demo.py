@@ -34,6 +34,15 @@ parser.add_argument('--otsu', action='store_true',
                     help='If using mask image also use Otsu filter mask')
 parser.add_argument('--pctrim','-p', action='store_true',
                     help='If using mask image also use 0.1%% bottom trim')
+parser.add_argument('--stepsperlevel','-s', type=int,
+                    default=5,
+                    help='Steps per level')
+parser.add_argument('--sigmafrac','-f', type=float,
+                    default=5,
+                    help='Steps per level')
+parser.add_argument('--maxlevel','-l', type=int,
+                    default=4,
+                    help='Maximum level')
 
 args = parser.parse_args()
 
@@ -47,6 +56,9 @@ withotsu = args.otsu
 pctrim = args.pctrim
 slax = 2
 Nbins=256
+steps=args.stepsperlevel
+fwhmfrac = args.sigmafrac
+
 
 if (maskfile is None):
   withotsu = True
@@ -94,10 +106,12 @@ datalogmaskedcur = np.copy(datalogmasked)
 grid = 2
 maxlvl = 4
 eps=0.01
-levels = [2] * 2 + [3] * 3 + [4] * 3 + [5] * 3
+
+levels = [2] * steps + [3] * steps + [4] * steps + [5] * steps
+levels = []
+[ levels.extend([x] * steps) for x in range(2,args.maxlevel+1) ]
 #levels = [2] * 20 + [3] * 20 + [4] * 20
 #filtw = [0.15] * 20 + [0.15] * 20 + [0.1] * 20 + [0.05] * 20
-
 
 
 
@@ -115,24 +129,27 @@ for N in range(len(levels)):
     #thisFWHM = optFWHM(hist,histbinwidth)
     #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
     datalogcur[mask] = datalogmaskedcur
-    thisSD = picksdexcessvar(datalogcur, mask)
+    thisSD = picksdremmeanvar(datalogcur, mask)
+    thisSD = thisSD / fwhmfrac
     thisFWHM = thisSD * math.sqrt(8*math.log(2))
-    print (thisFWHM)
+    print ("reduced sigma {} fwhm {}".format(thisSD, thisFWHM))
     mfilt, mfiltx, mfiltmid, mfiltbins = symGaussFilt(thisFWHM, histbinwidth)
     histfilt = wiener_filter_withpad(hist, mfilt, mfiltmid, Z)
     histfiltclip = np.clip(histfilt,0,None)
-    plt.plot(histval,hist)
-    plt.plot(histval,histfiltclip)
-    plt.plot(histval,histfilt)
     plt.title("Step {}, level {}, FWHM {:0.3f}".format(N,levels[N],thisFWHM))
-    plt.savefig("outpngent/kdetracksteps-{:02d}.png".format(N))
-    plt.close()
     np.save("outnpyent/kdetracksteps-{:02d}".format(N),np.vstack((histval,hist)))
-    np.save("outnpyent/kdetrackhist-{:02d}".format(N),datalogmaskedcur)
+    #np.save("outnpyent/kdetrackhist-{:02d}".format(N),datalogmaskedcur)
     uest, u1, conv1, conv2 = Eu_v(histfiltclip, histval, mfilt, hist)
     datalogmaskedupd = map_Eu_v(histval, uest, datalogmaskedcur)
     logbc = datalogmasked - datalogmaskedupd
     logbc = logbc - np.mean(logbc)
+    updhist = kdepdf(histval, datalogmaskedupd, histbinwidth*2)
+    plt.plot(histval,updhist,color="C3")
+    plt.plot(histval,histfiltclip,color="C1")
+    plt.plot(histval,histfilt,color="C2")
+    plt.plot(histval,hist,color="C0")
+    plt.savefig("outpngent/kdetracksteps-{:02d}.png".format(N))
+    plt.close()
     interpbc = mba.mba3([-eps]*3, [x + eps for x in inimgdata.shape], [grid]*3,
               voxgrid3.tolist(),
               logbc, max_levels=levels[N])
