@@ -43,6 +43,9 @@ parser.add_argument('--sigmafrac','-f', type=float,
 parser.add_argument('--maxlevel','-l', type=int,
                     default=4,
                     help='Maximum level')
+parser.add_argument('--sub','-r', type=int,
+                    default=None,
+                    help='sub sampling factor')
 
 
 #args="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
@@ -65,7 +68,7 @@ slax = 2
 Nbins=256
 steps=args.stepsperlevel
 fwhmfrac = args.sigmafrac
-
+subsamp = args.sub
 
 if (maskfile is None):
   withotsu = True
@@ -87,6 +90,15 @@ mask = np.ones(inimgdata.shape) > 0
 if maskfile :
   inmask = nib.load(maskfile)
   mask = np.logical_and(inmask.get_fdata() > 0, inimgdata > 0)
+
+if subsamp :
+  for ax in range(mask.ndim):
+    mask0 = np.zeros(mask.shape)
+    subidx = [slice(None)]*mask.ndim
+    els = range(0,mask0.shape[ax],subsamp)
+    subidx[ax] = els
+    mask0[tuple(subidx)] = 1
+    mask = np.logical_and(mask, mask0)
 
 if withotsu :
   _thresh = filters.threshold_otsu(inimgdata[mask])
