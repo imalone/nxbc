@@ -168,6 +168,11 @@ def kernelfntri(x,width):
     ax=np.fabs(x)
     return (width-ax).clip(0,None)/width**2
 
+
+def kernelfnhat(x,width):
+    ax=np.fabs(x)
+    return (width>ax).clip(0,None)/(2*width)
+
   
 def kernelfngauss(x,width):
     return np.exp(-x**2/(2*width**2))/math.sqrt(2*math.pi*width**2)
