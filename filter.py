@@ -451,13 +451,13 @@ def entropyEval(hist, histbinwidth, histval, data, fwhm, Z=0.01, filtfunc=symGau
     if distrib == "histo":
       newhist,histedge = np.histogram(dataupd,Nbins,(data.min(),data.max()))
     elif distrib == "kde":
-      newhist,histedge,_val,_width = distrib_kde(dataupd,Nbins,bw=histbinwidth*2)
+      newhist,histedge,_val,_width = distrib_kde(dataupd,Nbins,bw=histbinwidth)
     
     histfiltclipsm = (histfiltclip+1.0)/(histfiltclip.sum()+Nbins)
     newhistsm = (newhist + 1.0)/(newhist.sum()+Nbins)
     doplt=False
     if doplt:
-        plt.plot(histval, newhist/newhist.max()*histfilt.max())
+        plt.plot(histval, newhist)
         plt.plot(histval, hist)
         plt.plot(histval, histfilt)
     rval=stats.entropy(newhistsm,histfiltclipsm)
@@ -465,12 +465,25 @@ def entropyEval(hist, histbinwidth, histval, data, fwhm, Z=0.01, filtfunc=symGau
     #print(rval)
     return rval
 
-def optEntropyFWHM(hist, histbinwidth, histval, data, Z=0.01, range=(0.01,1,0.005), filtfunc=symGaussFiltFWHM, distrib="histo"):
+def optEntropyFWHMsing(hist, histbinwidth, histval, data, Z=0.01, fwrange=(0.01,1,0.005), filtfunc=symGaussFiltFWHM, distrib="histo"):
     varlist = []
-    fwlist = np.arange(*range)
+    fwlist = np.arange(*fwrange)
     for fwhm in fwlist:
         varlist.append(entropyEval(hist,histbinwidth,histval,data,fwhm,Z,filtfunc,distrib))
     varminind = np.array(varlist).argmin()
     return(fwlist[varminind])
 
 
+def optEntropyFWHMpar(hist, histbinwidth, histval, data, Z=0.01, fwrange=(0.01,1,0.005), filtfunc=symGaussFiltFWHM, distrib="histo"):
+    fwlist = np.arange(*fwrange)
+    pool = mp.Pool(processes=mp.cpu_count())
+    poolres = [pool.apply_async(entropyEval,
+      args=(hist,histbinwidth,histval,data,fwhm,Z,filtfunc,distrib))
+               for fwhm in fwlist]
+    pool.close()
+    varlist = [p.get() for p in poolres]
+
+    varminind = np.array(varlist).argmin()
+    return(fwlist[varminind])
+
+optEntropyFWHM = optEntropyFWHMpar
