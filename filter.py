@@ -111,7 +111,7 @@ def map_Eu_v(histval,uest, v):
   vbins = np.clip(np.searchsorted(histval,v)-1,0,histval.shape[0]-2)
   vbindist = (v - histval[vbins]) / vwidths[vbins]
   uwidths = uest[1:] - uest[:-1]
-  u = uest[vbins] + uwidths[vbins] * vbindist[vbins]
+  u = uest[vbins] + uwidths[vbins] * vbindist
   return u
 
 
