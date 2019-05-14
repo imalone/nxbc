@@ -44,6 +44,13 @@ parser.add_argument('--maxlevel','-l', type=int,
                     default=4,
                     help='Maximum level')
 
+
+#args="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
+#  "-p -f 10 -s20 -l4 "+\
+#  "-o testmultilevel/fad-1015-itml-optrembmv-s20-f10-l4-bc.nii.gz "+\
+#  "-b testmultilevel/fad-1015-itml-optrembmv-s20-f10-l4-bf.nii.gz"
+#args=args.split(" ")
+#args = parser.parse_args(args)
 args = parser.parse_args()
 
 infile = args.infile
@@ -127,11 +134,12 @@ for N in range(len(levels)):
     #hist,histvaledge,histval,histbinwidth = distrib_histo(datalogmaskedcur, Nbins)
     hist,histvaledge,histval,histbinwidth = distrib_kde(datalogmaskedcur, Nbins)
     #thisFWHM = optFWHM(hist,histbinwidth)
-    #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
+    thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
     datalogcur[mask] = datalogmaskedcur
-    thisSD = picksdremmeanvar(datalogcur, mask)
-    thisSD = thisSD / fwhmfrac
-    thisFWHM = thisSD * math.sqrt(8*math.log(2))
+    #thisSD = picksdremmeanvar(datalogcur, mask)
+    #thisFWHM = thisSD * math.sqrt(8*math.log(2))
+    thisSD = thisFWHM /  math.sqrt(8*math.log(2))
+    thisFWHM = thisFWHM / fwhmfrac
     print ("reduced sigma {} fwhm {}".format(thisSD, thisFWHM))
     mfilt, mfiltx, mfiltmid, mfiltbins = symGaussFilt(thisFWHM, histbinwidth)
     histfilt = wiener_filter_withpad(hist, mfilt, mfiltmid, Z)
@@ -143,11 +151,11 @@ for N in range(len(levels)):
     datalogmaskedupd = map_Eu_v(histval, uest, datalogmaskedcur)
     logbc = datalogmasked - datalogmaskedupd
     logbc = logbc - np.mean(logbc)
-    updhist = kdepdf(histval, datalogmaskedupd, histbinwidth*2)
-    plt.plot(histval,updhist,color="C3")
-    plt.plot(histval,histfiltclip,color="C1")
-    plt.plot(histval,histfilt,color="C2")
-    plt.plot(histval,hist,color="C0")
+    updhist = kdepdf(histval, datalogmaskedupd, histbinwidth)
+    plt.plot(histval,updhist,color="OrangeRed")
+    plt.plot(histval,histfiltclip,color="DarkOrange")
+    plt.plot(histval,histfilt,color="LimeGreen")
+    plt.plot(histval,hist,color="RoyalBlue")
     plt.savefig("outpngent/kdetracksteps-{:02d}.png".format(N))
     plt.close()
     interpbc = mba.mba3([-eps]*3, [x + eps for x in inimgdata.shape], [grid]*3,
