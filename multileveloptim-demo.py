@@ -17,7 +17,7 @@ import nibabel as nib
 
 from filter import *
 from plotsupport import *
-from skimage import filters
+from skimage import filters, restoration
 import mba
 
 FileType=argparse.FileType
@@ -46,15 +46,24 @@ parser.add_argument('--maxlevel','-l', type=int,
 parser.add_argument('--sub','-r', type=int,
                     default=None,
                     help='sub sampling factor')
+parser.add_argument('--expansion','-e', type=float,
+                    default=1.0,
+                    help='expansion factor for control grid')
+parser.add_argument('--thr','-t', type=float,
+                    default=1e-6,
+                    help='stopping threshold to be used at each level')
 
 
-#args="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
-#  "-p -f 10 -s20 -l4 "+\
-#  "-o testmultilevel/fad-1015-itml-optrembmv-s20-f10-l4-bc.nii.gz "+\
-#  "-b testmultilevel/fad-1015-itml-optrembmv-s20-f10-l4-bf.nii.gz"
-#args=args.split(" ")
-#args = parser.parse_args(args)
-args = parser.parse_args()
+if False:
+  args="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
+    "-p -f 10 -s20 -l4 "+\
+    "-o testmultilevel/xfad-1015-itml-optrembmv-s20-f10-l4-bc.nii.gz "+\
+    "-b testmultilevel/xfad-1015-itml-optrembmv-s20-f10-l4-bf.nii.gz " +\
+    "-r 2"
+  args=args.split(" ")
+  args = parser.parse_args(args)
+else:
+  args = parser.parse_args()
 
 infile = args.infile
 outfile = args.outfile
@@ -69,6 +78,13 @@ Nbins=256
 steps=args.stepsperlevel
 fwhmfrac = args.sigmafrac
 subsamp = args.sub
+expand = args.expansion
+stopthr = args.thr
+RLdeconv=False # Doesn't help much?
+
+if expand < 1:
+  print("Expansion factor must be >=1")
+  sys.exit(0)
 
 if (maskfile is None):
   withotsu = True
@@ -132,29 +148,44 @@ levels = []
 #levels = [2] * 20 + [3] * 20 + [4] * 20
 #filtw = [0.15] * 20 + [0.15] * 20 + [0.1] * 20 + [0.05] * 20
 
-
+#levelfwhm = {1: 0.15, 2: 0.15, 3: 0.15, 4: 0.1, 5: 0.03}
+#levelfwhm = {1: 0.5, 2: 0.5, 3: 0.15, 4: 0.1, 5: 0.03}
+#levelfwhm = {1: 0.5, 2: 0.5, 3: 0.3, 4: 0.1, 5: 0.03}
+levelfwhm = {1: 0.15, 2: 0.15, 3: 0.15, 4: 0.05, 5: 0.05}
 
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
+nextlevel = 1
 for N in range(len(levels)):
     if N%1 == 0 :
         print("{}/{}".format(N,len(levels)))
+    if levels[N] < nextlevel:
+      continue
+    nextlevel = levels[N]
     #hist,histvaledge = np.histogram(datalogmaskedcur,Nbins)
     #histwidth = histvaledge[-1] - histvaledge[0]
     #histval = (histvaledge[0:-1] + histvaledge[1:])/2
     #histbinwidth = histwidth / (histval.shape[0]-1)
     #hist,histvaledge,histval,histbinwidth = distrib_histo(datalogmaskedcur, Nbins)
-    hist,histvaledge,histval,histbinwidth = distrib_kde(datalogmaskedcur, Nbins)
+    hist,histvaledge,histval,histbinwidth = \
+      distrib_kde(datalogmaskedcur, Nbins, kernfn=kernelfnhat )
     #thisFWHM = optFWHM(hist,histbinwidth)
-    thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
-    datalogcur[mask] = datalogmaskedcur
+    #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
+    thisFWHM = levelfwhm[levels[N]]
     #thisSD = picksdremmeanvar(datalogcur, mask)
     #thisFWHM = thisSD * math.sqrt(8*math.log(2))
     thisSD = thisFWHM /  math.sqrt(8*math.log(2))
-    thisFWHM = thisFWHM / fwhmfrac
+    #thisFWHM = thisFWHM / fwhmfrac
     print ("reduced sigma {} fwhm {}".format(thisSD, thisFWHM))
     mfilt, mfiltx, mfiltmid, mfiltbins = symGaussFilt(thisFWHM, histbinwidth)
-    histfilt = wiener_filter_withpad(hist, mfilt, mfiltmid, Z)
+    if RLdeconv:
+       hist2d = hist.copy().reshape((hist.shape[0],1))
+       psf = mfilt.copy().reshape((mfilt.shape[0],1))
+       #histfilt = restoration.richardson_lucy(hist2d/hist2d.sum(),
+       #                                       psf,iterations=30).flat
+       histfilt, mfilt = iterative_rl_blind_1d(hist,mfilt,m=10,n=1000)
+    else:
+      histfilt = wiener_filter_withpad(hist, mfilt, mfiltmid, Z)
     histfiltclip = np.clip(histfilt,0,None)
     plt.title("Step {}, level {}, FWHM {:0.3f}".format(N,levels[N],thisFWHM))
     np.save("outnpyent/kdetracksteps-{:02d}".format(N),np.vstack((histval,hist)))
@@ -162,15 +193,20 @@ for N in range(len(levels)):
     uest, u1, conv1, conv2 = Eu_v(histfiltclip, histval, mfilt, hist)
     datalogmaskedupd = map_Eu_v(histval, uest, datalogmaskedcur)
     logbc = datalogmasked - datalogmaskedupd
-    logbc = logbc - np.mean(logbc)
+    meanadj=True
+    if meanadj:
+      logbc = logbc - np.mean(logbc)
     updhist = kdepdf(histval, datalogmaskedupd, histbinwidth)
-    plt.plot(histval,updhist,color="OrangeRed")
-    plt.plot(histval,histfiltclip,color="DarkOrange")
-    plt.plot(histval,histfilt,color="LimeGreen")
+    histmax = hist.max()
+    plt.plot(histval,updhist/updhist.max()*histmax,color="OrangeRed")
+    plt.plot(histval,histfiltclip/histfiltclip.max()*histmax,color="DarkOrange")
+    plt.plot(histval,histfilt/histfilt.max()*histmax,color="LimeGreen")
     plt.plot(histval,hist,color="RoyalBlue")
     plt.savefig("outpngent/kdetracksteps-{:02d}.png".format(N))
     plt.close()
-    interpbc = mba.mba3([-eps]*3, [x + eps for x in inimgdata.shape], [grid]*3,
+    viewmin = [ (1-expand)/2 * x -eps for x in inimgdata.shape]
+    viewmax = [ (1+expand)/2 * x + eps for x in inimgdata.shape]
+    interpbc = mba.mba3(viewmin, viewmax, [grid]*3,
               voxgrid3.tolist(),
               logbc, max_levels=levels[N])
     logbcsm=interpbc(voxgrid3.tolist())
@@ -182,6 +218,9 @@ for N in range(len(levels)):
     conv = ratiosd / ratiomean
     print(conv,ratiosd,ratiomean)
     datalogmaskedcur = datalogmasked - logbcsm
+    datalogcur[mask] = datalogmaskedcur
+    if (conv < stopthr):
+      nextlevel = levels[N] + 1
 print("\nComplete")
 
 bfieldlog = np.reshape(interpbc(voxfullgrid3.tolist()),inimgdata.shape)
