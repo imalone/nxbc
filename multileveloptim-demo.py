@@ -168,7 +168,7 @@ for N in range(len(levels)):
     #histbinwidth = histwidth / (histval.shape[0]-1)
     #hist,histvaledge,histval,histbinwidth = distrib_histo(datalogmaskedcur, Nbins)
     hist,histvaledge,histval,histbinwidth = \
-      distrib_kde(datalogmaskedcur, Nbins, kernfn=kernelfnhat )
+      distrib_kde(datalogmaskedcur, Nbins)
     #thisFWHM = optFWHM(hist,histbinwidth)
     #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
     thisFWHM = levelfwhm[levels[N]]
@@ -177,7 +177,7 @@ for N in range(len(levels)):
     thisSD = thisFWHM /  math.sqrt(8*math.log(2))
     #thisFWHM = thisFWHM / fwhmfrac
     print ("reduced sigma {} fwhm {}".format(thisSD, thisFWHM))
-    mfilt, mfiltx, mfiltmid, mfiltbins = symGaussFilt(thisFWHM, histbinwidth)
+    mfilt, mfiltx, mfiltmid, mfiltbins = symGaussFilt(thisSD, histbinwidth)
     if RLdeconv:
        hist2d = hist.copy().reshape((hist.shape[0],1))
        psf = mfilt.copy().reshape((mfilt.shape[0],1))
