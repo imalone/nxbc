@@ -3,7 +3,7 @@ import math
 import scipy.stats as stats
 import statsmodels.nonparametric.smoothers_lowess as ls
 import statsmodels.nonparametric.kernel_regression as kreg
-import pathos.multiprocessing as mp
+import multiprocessing as mp
 
 def symGaussFiltFWHM (filtFWHM, filtbinwidth):
   sigma = filtFWHM / math.sqrt(8 * math.log(2))
@@ -210,7 +210,7 @@ def distrib_kde(data,Nbins, bw=None, kernfn=kernelfngauss):
 
 
 def getblockstats(data, mask, blocksize=7, sampsize=100):
-  print("blocksize {}".format(blocksize))
+  np.random.seed()
   masklist = np.argwhere(mask)
   blockneg=-blocksize//2
   blockpos=blocksize//2
@@ -219,21 +219,24 @@ def getblockstats(data, mask, blocksize=7, sampsize=100):
   blockmean = []
   blockcohen2 = []
   blockn = []
-  for choice in np.random.choice(range(masklist.shape[0]), size=sampsize):
+  while (len(blockvar) < sampsize):
+    choice = np.random.choice(range(masklist.shape[0]))
+    if (len(blockvar)==0):
+      print ("blocksize {} first block {}".format(blocksize,choice))
     blockcentre = masklist[choice]
-    includedallax = np.ones(masklist.shape[0])
+    #includedallax = np.zeros(mask.shape)
+    subidx = [slice(None)]*mask.ndim
     for ax in range(len(blockcentre)):
-      # thought where was tuple of index arrays, but if [choice]
-      # indexes then not right?
-      included = np.logical_and(masklist[:,ax] >= blockcentre[ax]
-                                + blockneg,
-                                masklist[:,ax] < blockcentre[ax] + blockpos)
-      includedallax = np.logical_and(included, includedallax)
-    mget=masklist[includedallax]
-    blockvals = data[mget[:,0],mget[:,1], mget[:,2]]
+      els = range(max(0, blockcentre[ax]+blockneg),
+                  min(mask.shape[ax],blockcentre[ax]+blockpos))
+      subidx[ax] = els
+    #includedallax[np.ix_(*subidx)] = 1
+    #includedallax = np.logical_and(mask, includedallax)
+    #blockvals = data[includedallax]
+    blockvals = data[np.ix_(*subidx)]
     blockvar.append(np.var(blockvals,ddof=1))
     blockmean.append(np.average(blockvals))
-    blockn.append(includedallax.sum())
+    blockn.append(blockvals.shape[0])
   _m = np.average(blockmean, weights=blockn)
   _v = np.average((blockmean-_m)**2,weights=np.sqrt(blockn)) * \
     len(blockmean)/(len(blockmean)-1)
