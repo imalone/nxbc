@@ -151,7 +151,7 @@ levels = []
 #levelfwhm = {1: 0.15, 2: 0.15, 3: 0.15, 4: 0.1, 5: 0.03}
 #levelfwhm = {1: 0.5, 2: 0.5, 3: 0.15, 4: 0.1, 5: 0.03}
 #levelfwhm = {1: 0.5, 2: 0.5, 3: 0.3, 4: 0.1, 5: 0.03}
-levelfwhm = {1: 0.15, 2: 0.15, 3: 0.15, 4: 0.05, 5: 0.05}
+levelfwhm = {1: 0.15, 2: 0.15, 3: 0.15, 4: 0.1, 5: 0.05}
 
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
@@ -168,10 +168,10 @@ for N in range(len(levels)):
     #histbinwidth = histwidth / (histval.shape[0]-1)
     #hist,histvaledge,histval,histbinwidth = distrib_histo(datalogmaskedcur, Nbins)
     hist,histvaledge,histval,histbinwidth = \
-      distrib_kde(datalogmaskedcur, Nbins)
+      distrib_histo(datalogmaskedcur, Nbins)
     #thisFWHM = optFWHM(hist,histbinwidth)
     #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
-    thisFWHM = levelfwhm[levels[N]]
+    thisFWHM = levelfwhm[levels[N]] * math.sqrt(8*math.log(2))
     #thisSD = picksdremmeanvar(datalogcur, mask)
     #thisFWHM = thisSD * math.sqrt(8*math.log(2))
     thisSD = thisFWHM /  math.sqrt(8*math.log(2))
