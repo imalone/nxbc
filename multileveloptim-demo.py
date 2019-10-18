@@ -52,6 +52,9 @@ parser.add_argument('--expansion','-e', type=float,
 parser.add_argument('--thr','-t', type=float,
                     default=1e-6,
                     help='stopping threshold to be used at each level')
+parser.add_argument('--grid','-g', type=int,
+                    default=2,
+                    help='initial grid')
 
 
 if False:
@@ -138,20 +141,21 @@ voxgrid3 = np.argwhere(mask)
 voxfullgrid3 = np.argwhere(mask==mask)
 
 datalogmaskedcur = np.copy(datalogmasked)
-grid = 2
+grid = args.grid
 maxlvl = 4
 eps=0.01
+min_fill=0.5
 
 levels = [2] * steps + [3] * steps + [4] * steps + [5] * steps
 levels = []
 [ levels.extend([x] * steps) for x in range(2,args.maxlevel+1) ]
 #levels = [2] * 20 + [3] * 20 + [4] * 20
 #filtw = [0.15] * 20 + [0.15] * 20 + [0.1] * 20 + [0.05] * 20
-
 #levelfwhm = {1: 0.15, 2: 0.15, 3: 0.15, 4: 0.1, 5: 0.03}
 #levelfwhm = {1: 0.5, 2: 0.5, 3: 0.15, 4: 0.1, 5: 0.03}
 #levelfwhm = {1: 0.5, 2: 0.5, 3: 0.3, 4: 0.1, 5: 0.03}
-levelfwhm = {1: 0.15, 2: 0.15, 3: 0.15, 4: 0.1, 5: 0.05}
+#levelfwhm = {1: 0.15, 2: 0.15, 3: 0.1, 4: 0.1, 5: 0.05}
+levelfwhm = {1: 0.05, 2: 0.05, 3: 0.05, 4: 0.05, 5: 0.05}
 
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
@@ -168,10 +172,10 @@ for N in range(len(levels)):
     #histbinwidth = histwidth / (histval.shape[0]-1)
     #hist,histvaledge,histval,histbinwidth = distrib_histo(datalogmaskedcur, Nbins)
     hist,histvaledge,histval,histbinwidth = \
-      distrib_histo(datalogmaskedcur, Nbins)
+      distrib_kde(datalogmaskedcur, Nbins)
     #thisFWHM = optFWHM(hist,histbinwidth)
     #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
-    thisFWHM = levelfwhm[levels[N]] * math.sqrt(8*math.log(2))
+    thisFWHM = levelfwhm[levels[N]] # * math.sqrt(8*math.log(2))
     #thisSD = picksdremmeanvar(datalogcur, mask)
     #thisFWHM = thisSD * math.sqrt(8*math.log(2))
     thisSD = thisFWHM /  math.sqrt(8*math.log(2))
@@ -208,7 +212,7 @@ for N in range(len(levels)):
     viewmax = [ (1+expand)/2 * x + eps for x in inimgdata.shape]
     interpbc = mba.mba3(viewmin, viewmax, [grid]*3,
               voxgrid3.tolist(),
-              logbc, max_levels=levels[N])
+              logbc, max_levels=levels[N], min_fill=min_fill)
     logbcsm=interpbc(voxgrid3.tolist())
     logbcratio = logbcsm - lastinterpbc
     lastinterpbc = logbcsm
