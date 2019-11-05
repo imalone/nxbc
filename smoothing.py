@@ -5,7 +5,9 @@ import tempfile
 import nibabel as nib
 
 
-def applyMINCSmooth(inimg, lmb=0.01,dist=75,subsamp=2):
+def applyMINCSmooth(inimg, mask=None, lmb=0.01,dist=75,subsamp=2,
+                    extrapolate=False):
+
     # Python 3: tmpdir = tempfile.TemporaryDirectory()
     tmpdir = tempfile.mkdtemp()
     tmpfile=os.path.join(tmpdir,'tmpfile')
@@ -15,6 +17,11 @@ def applyMINCSmooth(inimg, lmb=0.01,dist=75,subsamp=2):
     tmpfilemnc1="{}1.mnc".format(tmpfile)
     tmpfilemnc2="{}2.mnc".format(tmpfile)
 
+    tmpfileniimask="{}mask.nii".format(tmpfile)
+    tmpfilemncmask="{}mask.mnc".format(tmpfile)
+
+    haveMask = mask is not None
+
     nib.save(inimg,tmpfilenii1)
     convcmd = ['nii2mnc',tmpfilenii1,tmpfilemnc1]
     print(convcmd)
@@ -23,9 +30,23 @@ def applyMINCSmooth(inimg, lmb=0.01,dist=75,subsamp=2):
     #tmpmncout = nib.Minc1Image(inimgdata, inimg.affine, inimg.header)
     #nib.save(tmpmncout,tmpfile)
 
-    splcmd = ['spline_smooth','-lambda',lmb,
-              '-distance',dist,
-              '-subsample',subsamp,tmpfilemnc1,tmpfilemnc2]
+    if haveMask:
+        maskimg = nib.Nifti1Image(mask, inimg.affine, inimg.header)
+        nib.save(maskimg,tmpfileniimask)
+        convcmd = ['nii2mnc',tmpfileniimask,tmpfilemncmask]
+        print(convcmd)
+        sub.call(convcmd)
+        
+
+    splcmd = ['spline_smooth']
+    if haveMask:
+        splcmd = splcmd + ['-mask',tmpfilemncmask]
+    if extrapolate:
+        splcmd = splcmd + ['-extrapolate']
+    splcmd = splcmd + ['-lambda',lmb,
+                       '-distance',dist,
+                       '-subsample',subsamp,
+                       tmpfilemnc1,tmpfilemnc2]
     splcmd = ["{}".format(x) for x in splcmd]
     print(splcmd)
     sub.call(splcmd)
@@ -41,7 +62,8 @@ def applyMINCSmooth(inimg, lmb=0.01,dist=75,subsamp=2):
     smimg = nib.load(tmpfilenii3)
     smimgdata = smimg.get_fdata()
     for rmfile in [tmpfilenii1,tmpfilenii2,tmpfilenii3,
-              tmpfilemnc1,tmpfilemnc2] :
+                   tmpfilemnc1,tmpfilemnc2,
+                   tmpfileniimask, tmpfilemncmask] :
         os.remove(rmfile)
     os.rmdir(tmpdir)
     return smimgdata

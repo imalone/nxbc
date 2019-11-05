@@ -17,6 +17,8 @@ import nibabel as nib
 
 from filter import *
 from plotsupport import *
+from smoothing import applyMINCSmooth
+from splinesmooth3d import SplineSmooth3D
 from skimage import filters, restoration
 import mba
 
@@ -39,7 +41,7 @@ parser.add_argument('--stepsperlevel','-s', type=int,
                     help='Steps per level')
 parser.add_argument('--sigmafrac','-f', type=float,
                     default=5,
-                    help='Steps per level')
+                    help='Sigma fraction')
 parser.add_argument('--maxlevel','-l', type=int,
                     default=4,
                     help='Maximum level')
@@ -136,6 +138,7 @@ datalog = np.copy(inimgdata)
 datalog[mask] = np.log(datalog[mask])
 datalog[np.logical_not(mask)] = 0
 datalogmasked = datalog[mask]
+datafill = np.zeros_like(datalog)
 
 voxgrid3 = np.argwhere(mask)
 voxfullgrid3 = np.argwhere(mask==mask)
@@ -156,6 +159,12 @@ levels = []
 #levelfwhm = {1: 0.5, 2: 0.5, 3: 0.3, 4: 0.1, 5: 0.03}
 #levelfwhm = {1: 0.15, 2: 0.15, 3: 0.1, 4: 0.1, 5: 0.05}
 levelfwhm = {1: 0.05, 2: 0.05, 3: 0.05, 4: 0.05, 5: 0.05}
+levels=[2] * steps
+levelfwhm[2] = 0.15
+usemba=0
+
+splsm3d = SplineSmooth3D(datalog, nib.affines.voxel_sizes(inimg.affine),
+                         75, domainMethod="minc", mask=mask, Lambda=0.01)
 
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
@@ -210,10 +219,21 @@ for N in range(len(levels)):
     plt.close()
     viewmin = [ (1-expand)/2 * x -eps for x in inimgdata.shape]
     viewmax = [ (1+expand)/2 * x + eps for x in inimgdata.shape]
-    interpbc = mba.mba3(viewmin, viewmax, [grid]*3,
-              voxgrid3.tolist(),
-              logbc, max_levels=levels[N], min_fill=min_fill)
-    logbcsm=interpbc(voxgrid3.tolist())
+    if(usemba):
+      interpbc = mba.mba3(viewmin, viewmax, [grid]*3,
+                          voxgrid3.tolist(),
+                          logbc, max_levels=levels[N], min_fill=min_fill)
+      logbcsm=interpbc(voxgrid3.tolist())
+    else:
+      # Need masking!
+      datafill[mask] = logbc
+      splsm3d.fit(datafill, reportingLevel=1)
+      logbcsmfull = splsm3d.predict()
+      tmpnii = nib.Nifti1Image(datafill, inimg.affine, inimg.header)
+      nib.save(tmpnii,"outniism/in-{:02d}.nii.gz".format(N))
+      tmpnii = nib.Nifti1Image(logbcsmfull, inimg.affine, inimg.header)
+      nib.save(tmpnii,"outniism/out-{:02d}.nii.gz".format(N))
+      logbcsm = logbcsmfull[mask]
     logbcratio = logbcsm - lastinterpbc
     lastinterpbc = logbcsm
     bcratio = np.exp(logbcratio)
@@ -227,7 +247,11 @@ for N in range(len(levels)):
       nextlevel = levels[N] + 1
 print("\nComplete")
 
-bfieldlog = np.reshape(interpbc(voxfullgrid3.tolist()),inimgdata.shape)
+if(usemba):
+  bfieldlog = np.reshape(interpbc(voxfullgrid3.tolist()),inimgdata.shape)
+else:
+  bfieldlog = splsm3d.predict()
+
 bfield = np.exp(bfieldlog)
 imgcorr = inimgdata / bfield
 
