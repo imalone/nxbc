@@ -164,7 +164,7 @@ levelfwhm[2] = 0.15
 usemba=0
 
 splsm3d = SplineSmooth3D(datalog, nib.affines.voxel_sizes(inimg.affine),
-                         75, domainMethod="minc", mask=mask, Lambda=0.01)
+                         75, domainMethod="minc", mask=mask, Lambda=1.0/8)
 
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
