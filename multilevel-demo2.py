@@ -46,7 +46,7 @@ parser.add_argument('--fwhm', type=float,
                     default=0.15,
                     help='FWHM for log histogram deconvolution')
 parser.add_argument('--maxlevel','-l', type=int,
-                    default=4,
+                    default=1,
                     help='Maximum level')
 parser.add_argument('--sub','-r', type=int,
                     default=None,
@@ -57,9 +57,9 @@ parser.add_argument('--expansion','-e', type=float,
 parser.add_argument('--thr','-t', type=float,
                     default=1e-6,
                     help='stopping threshold to be used at each level')
-parser.add_argument('--grid','-g', type=int,
-                    default=2,
-                    help='initial grid')
+parser.add_argument('--dist','-d', type=float,
+                    default=150,
+                    help='spline spacing (mm)')
 
 
 if False:
@@ -143,32 +143,23 @@ datafill = np.zeros_like(datalog)
 
 
 datalogmaskedcur = np.copy(datalogmasked)
-grid = args.grid
-maxlvl = 4
 eps=0.01
 min_fill=0.5
 
-levels = [2] * steps + [3] * steps + [4] * steps + [5] * steps
-levels = []
-[ levels.extend([x] * steps) for x in range(2,args.maxlevel+1) ]
-#levels = [2] * 20 + [3] * 20 + [4] * 20
-#filtw = [0.15] * 20 + [0.15] * 20 + [0.1] * 20 + [0.05] * 20
-#levelfwhm = {1: 0.15, 2: 0.15, 3: 0.15, 4: 0.1, 5: 0.03}
-#levelfwhm = {1: 0.5, 2: 0.5, 3: 0.15, 4: 0.1, 5: 0.03}
-#levelfwhm = {1: 0.5, 2: 0.5, 3: 0.3, 4: 0.1, 5: 0.03}
-#levelfwhm = {1: 0.15, 2: 0.15, 3: 0.1, 4: 0.1, 5: 0.05}
-levelfwhm = {1: 0.05, 2: 0.05, 3: 0.05, 4: 0.05, 5: 0.05}
-levels=[2] * steps + [3] * steps + [4] * steps
-levelfwhm[2] = args.fwhm
-levelfwhm[3] = args.fwhm/2
-levelfwhm[4] = args.fwhm/3
+# Descending FWHM scheme
+levels=[ lvl for lvl in range(args.maxlevel) for _ in range(steps) ]
+levelfwhm = args.fwhm / (np.arange(args.maxlevel) + 1)
 
 splsm3d = SplineSmooth3D(datalog, nib.affines.voxel_sizes(inimg.affine),
-                         75, domainMethod="minc", mask=mask, Lambda=1.0/8)
+                         args.dist, domainMethod="minc", mask=mask, Lambda=1.0/subsamp**3)
 
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
-nextlevel = 1
+nextlevel = 0
+savehists = False
+saveplots=False
+savefields=False
+
 for N in range(len(levels)):
     if N%1 == 0 :
         print("{}/{}".format(N,len(levels)))
@@ -195,7 +186,6 @@ for N in range(len(levels)):
     histfilt = wiener_filter_withpad(hist, mfilt, mfiltmid, Z)
     histfiltclip = np.clip(histfilt,0,None)
 
-    savehists = False
     if savehists:
       np.save("outnpyent/kdetracksteps-{:02d}".format(N),np.vstack((histval,hist)))
       #np.save("outnpyent/kdetrackhist-{:02d}".format(N),datalogmaskedcur)
@@ -207,13 +197,12 @@ for N in range(len(levels)):
     if meanadj:
       logbc = logbc - np.mean(logbc)
     usegausspde=True
-    if usegausspde:
-      updhist = kdepdf(histval, datalogmaskedupd, histbinwidth)
-    else:
-      updhist = kdepdf(histval, datalogmaskedupd, histbinwidth, kernelfntri)
-    histmax = hist.max()
-    saveplots=True
     if saveplots:
+      if usegausspde:
+        updhist = kdepdf(histval, datalogmaskedupd, histbinwidth)
+      else:
+        updhist = kdepdf(histval, datalogmaskedupd, histbinwidth, kernelfntri)
+        histmax = hist.max()
       plt.title("Step {}, level {}, FWHM {:0.3f}".format(N,levels[N],thisFWHM))
       plt.plot(histval,updhist/updhist.max()*histmax,color="OrangeRed")
       plt.plot(histval,histfiltclip/histfiltclip.max()*histmax,color="DarkOrange")
@@ -226,7 +215,6 @@ for N in range(len(levels)):
     datafill[mask] = logbc
     splsm3d.fit(datafill, reportingLevel=1)
     logbcsmfull = splsm3d.predict()
-    savefields=False
     if savefields:
       tmpnii = nib.Nifti1Image(datafill, inimg.affine, inimg.header)
       nib.save(tmpnii,"outniism/in-{:02d}.nii.gz".format(N))
