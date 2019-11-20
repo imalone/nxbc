@@ -60,6 +60,14 @@ parser.add_argument('--thr','-t', type=float,
 parser.add_argument('--dist','-d', type=float,
                     default=150,
                     help='spline spacing (mm)')
+parser.add_argument('--savehists', default=None, type=str,
+                    help="directory name to save histogram files")
+parser.add_argument('--saveplots', default=None, type=str,
+                    help="directory name to save histogram plots")
+parser.add_argument('--savefields', default=None, type=str,
+                    help="directory name to save intermediate field estimates")
+parser.add_argument('--accumulate', action='store_true',
+                    help="use accumulated bias field fitting (N4 style)")
 
 
 if False:
@@ -156,9 +164,12 @@ splsm3d = SplineSmooth3D(datalog, nib.affines.voxel_sizes(inimg.affine),
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
 nextlevel = 0
-savehists = False
-saveplots=False
-savefields=False
+savehists = args.savehists
+saveplots= args.saveplots
+savefields=args.savefields
+accumulate=args.accumulate
+
+controlField=None
 
 for N in range(len(levels)):
     if N%1 == 0 :
@@ -187,17 +198,23 @@ for N in range(len(levels)):
     histfiltclip = np.clip(histfilt,0,None)
 
     if savehists:
-      np.save("outnpyent/kdetracksteps-{:02d}".format(N),np.vstack((histval,hist)))
-      #np.save("outnpyent/kdetrackhist-{:02d}".format(N),datalogmaskedcur)
+      os.mkdir(savehists)
+      np.save("{}/kdetracksteps-{:02d}".format(savehists,N),
+              np.vstack((histval,hist)))
+      #np.save("{}/kdetrackhist-{:02d}".format(savehists,N),datalogmaskedcur)
 
     uest, u1, conv1, conv2 = Eu_v(histfiltclip, histval, mfilt, hist)
     datalogmaskedupd = map_Eu_v(histval, uest, datalogmaskedcur)
-    logbc = datalogmasked - datalogmaskedupd
+    if accumulate:
+      logbc = datalogmaskedcur - datalogmaskedupd
+    else:
+      logbc = datalogmasked - datalogmaskedupd
     meanadj=True
     if meanadj:
       logbc = logbc - np.mean(logbc)
     usegausspde=True
     if saveplots:
+      os.mkdir(saveplots)
       if usegausspde:
         updhist = kdepdf(histval, datalogmaskedupd, histbinwidth)
       else:
@@ -208,7 +225,7 @@ for N in range(len(levels)):
       plt.plot(histval,histfiltclip/histfiltclip.max()*histmax,color="DarkOrange")
       plt.plot(histval,histfilt/histfilt.max()*histmax,color="LimeGreen")
       plt.plot(histval,hist,color="RoyalBlue")
-      plt.savefig("outpngent/kdetracksteps-{:04d}.png".format(N))
+      plt.savefig("{}/kdetracksteps-{:04d}.png".format(saveplots,N))
       plt.close()
 
     # Need masking!
@@ -216,24 +233,38 @@ for N in range(len(levels)):
     splsm3d.fit(datafill, reportingLevel=1)
     logbcsmfull = splsm3d.predict()
     if savefields:
+      os.mkdir(savefields)
       tmpnii = nib.Nifti1Image(datafill, inimg.affine, inimg.header)
-      nib.save(tmpnii,"outniism/in-{:02d}.nii.gz".format(N))
+      nib.save(tmpnii,"{}/in-{:02d}.nii.gz".format(savefields,N))
       tmpnii = nib.Nifti1Image(logbcsmfull, inimg.affine, inimg.header)
-      nib.save(tmpnii,"outniism/out-{:02d}.nii.gz".format(N))
+      nib.save(tmpnii,"{}/out-{:02d}.nii.gz".format(savefields,N))
     logbcsm = logbcsmfull[mask]
 
-    logbcratio = logbcsm - lastinterpbc
-    lastinterpbc = logbcsm
+    if accumulate:
+      logbcratio = logbcsm
+    else:
+      logbcratio = logbcsm - lastinterpbc
+      lastinterpbc = logbcsm
     bcratio = np.exp(logbcratio)
     ratiomean = bcratio.mean()
     ratiosd = bcratio.std()
     conv = ratiosd / ratiomean
     print(conv,ratiosd,ratiomean)
-    datalogmaskedcur = datalogmasked - logbcsm
+    if accumulate:
+      datalogmaskedcur = datalogmaskedcur - logbcsm
+      if controlField is None:
+        controlField  = splsm3d.P.copy()
+      else:
+        controlField += splsm3d.P
+    else:
+      datalogmaskedcur = datalogmasked - logbcsm
     datalogcur[mask] = datalogmaskedcur
     if (conv < stopthr):
       nextlevel = levels[N] + 1
 print("\nComplete")
+
+if accumulate:
+  splsm3d.P = controlField
 
 bfieldlog = splsm3d.predict()
 
