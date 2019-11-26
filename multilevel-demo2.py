@@ -18,7 +18,7 @@ import nibabel as nib
 from filter import *
 from plotsupport import *
 from smoothing import applyMINCSmooth
-from splinesmooth3d import SplineSmooth3D
+from splinesmooth3d.splinesmooth3d import SplineSmooth3D
 from skimage import filters, restoration
 #import mba
 
@@ -68,6 +68,8 @@ parser.add_argument('--savefields', default=None, type=str,
                     help="directory name to save intermediate field estimates")
 parser.add_argument('--accumulate', action='store_true',
                     help="use accumulated bias field fitting (N4 style)")
+parser.add_argument('--Lambda', '-L', default=1.0, type=float,
+                    help="spline smoothing lambda (image level)")
 
 
 if False:
@@ -158,8 +160,9 @@ min_fill=0.5
 levels=[ lvl for lvl in range(args.maxlevel) for _ in range(steps) ]
 levelfwhm = args.fwhm / (np.arange(args.maxlevel) + 1)
 
+effLambda=args.Lambda / subsamp**3
 splsm3d = SplineSmooth3D(datalog, nib.affines.voxel_sizes(inimg.affine),
-                         args.dist, domainMethod="minc", mask=mask, Lambda=1.0/subsamp**3)
+                         args.dist, domainMethod="minc", mask=mask, Lambda=effLambda)
 
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)

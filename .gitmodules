@@ -1,0 +1,3 @@
+[submodule "splinesmooth3d"]
+	path = splinesmooth3d
+	url = git@gitlab.drc.ion.ucl.ac.uk:malone/spline-experimentation.git
