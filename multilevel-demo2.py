@@ -47,7 +47,7 @@ parser.add_argument('--fwhm', type=float,
                     help='FWHM for log histogram deconvolution')
 parser.add_argument('--maxlevel','-l', type=int,
                     default=1,
-                    help='Maximum level')
+                    help='Maximum level. Fitting is either repeated for each level at FWHM=(starting FWHM)/level or with a subdivided mesh (see --subdivide)')
 parser.add_argument('--sub','-r', type=int,
                     default=None,
                     help='sub sampling factor')
@@ -70,6 +70,8 @@ parser.add_argument('--accumulate', action='store_true',
                     help="use accumulated bias field fitting (N4 style)")
 parser.add_argument('--Lambda', '-L', default=1.0, type=float,
                     help="spline smoothing lambda (image level)")
+parser.add_argument('--subdivide', action='store_true',
+                    help="subdivide mesh at each level")
 
 
 if False:
@@ -97,6 +99,12 @@ fwhmfrac = args.sigmafrac
 subsamp = args.sub
 expand = args.expansion
 stopthr = args.thr
+
+savehists = args.savehists
+saveplots= args.saveplots
+savefields=args.savefields
+accumulate=args.accumulate
+subdivide=args.subdivide
 
 if expand < 1:
   print("Expansion factor must be >=1")
@@ -158,7 +166,12 @@ min_fill=0.5
 
 # Descending FWHM scheme
 levels=[ lvl for lvl in range(args.maxlevel) for _ in range(steps) ]
-levelfwhm = args.fwhm / (np.arange(args.maxlevel) + 1)
+# At some point will have to generalise into fwhm and subdivision
+# level scheme, at the moment it's either or:
+if not subdivide:
+  levelfwhm = args.fwhm / (np.arange(args.maxlevel) + 1)
+else:
+  levelfwhm = args.fwhm * np.ones(args.maxlevel)
 
 effLambda=args.Lambda / subsamp**3
 splsm3d = SplineSmooth3D(datalog, nib.affines.voxel_sizes(inimg.affine),
@@ -167,10 +180,6 @@ splsm3d = SplineSmooth3D(datalog, nib.affines.voxel_sizes(inimg.affine),
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
 nextlevel = 0
-savehists = args.savehists
-saveplots= args.saveplots
-savefields=args.savefields
-accumulate=args.accumulate
 
 controlField=None
 
@@ -180,11 +189,6 @@ for N in range(len(levels)):
     if levels[N] < nextlevel:
       continue
     nextlevel = levels[N]
-    #hist,histvaledge = np.histogram(datalogmaskedcur,Nbins)
-    #histwidth = histvaledge[-1] - histvaledge[0]
-    #histval = (histvaledge[0:-1] + histvaledge[1:])/2
-    #histbinwidth = histwidth / (histval.shape[0]-1)
-    #hist,histvaledge,histval,histbinwidth = distrib_histo(datalogmaskedcur, Nbins)
     hist,histvaledge,histval,histbinwidth = \
       distrib_kde(datalogmaskedcur, Nbins)
     #thisFWHM = optFWHM(hist,histbinwidth)
@@ -264,7 +268,15 @@ for N in range(len(levels)):
     datalogcur[mask] = datalogmaskedcur
     if (conv < stopthr):
       nextlevel = levels[N] + 1
-print("\nComplete")
+    if subdivide and N<len(levels) and (N+1)%steps == 0:
+      # Applies to both cumulative and normal iterative
+      # mode, in normal iterative mode we're just upgrading
+      # to a finer mesh for the following updates.
+      # In cumulative mode we first get the current cumulative
+      # estimate before refining.
+      splsm3d.P = controlField
+      splsm3d = splsm3d.promote()
+      controlField = splsm3d.P
 
 if accumulate:
   splsm3d.P = controlField
