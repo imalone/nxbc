@@ -75,6 +75,8 @@ parser.add_argument('--subdivide', action='store_true',
                     help="subdivide mesh at each level")
 parser.add_argument('--unregularized', action='store_true',
                     help="subdivide mesh at each level")
+parser.add_argument('--costDerivative', type=int, default=2,
+                    help="derivative order for cost function")
 
 
 if False:
@@ -185,7 +187,8 @@ else:
   effLambda=args.Lambda / subsamp**3
   splsm3d = SplineSmooth3D(datalog, nib.affines.voxel_sizes(inimg.affine),
                            args.dist, domainMethod="minc", mask=mask,
-                           Lambda=effLambda)
+                           Lambda=effLambda,
+                           costDerivative=args.costDerivative)
 
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
