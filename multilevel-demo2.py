@@ -6,6 +6,7 @@ from builtins import *
 
 import sys
 import argparse
+import os
 
 import numpy as np
 #%matplotlib inline  
@@ -136,29 +137,36 @@ if maskfile :
   inmask = nib.load(maskfile)
   mask = np.logical_and(inmask.get_fdata() > 0, inimgdata > 0)
 
+dataSub = inimgdata
+dataVoxSize = nib.affines.voxel_sizes(inimg.affine)
+affineSub = np.copy(inimg.affine)
+dataSubVoxSize = dataVoxSize
+
+
 if subsamp :
-  for ax in range(mask.ndim):
-    mask0 = np.zeros(mask.shape)
-    subidx = [slice(None)]*mask.ndim
-    els = range(0,mask0.shape[ax],subsamp)
-    subidx[ax] = els
-    mask0[tuple(subidx)] = 1
-    mask = np.logical_and(mask, mask0)
+  offset = subsamp // 2
+  dataSub = dataSub[offset::subsamp,offset::subsamp,offset::subsamp]
+  mask = mask[offset::subsamp,offset::subsamp,offset::subsamp]
+  affineSub[0:3,3] = affineSub[0:3,0:3].sum(1) * offset + affineSub[0:3,3]
+  affineSub[0:3,0:3] *= subsamp
+  dataSubVoxSize = nib.affines.voxel_sizes(affineSub)
+
 
 if withotsu :
-  _thresh = filters.threshold_otsu(inimgdata[mask])
-  mask = np.logical_and(inimgdata > _thresh, mask)
+  _thresh = filters.threshold_otsu(dataSub[mask])
+  mask = np.logical_and(dataSub > _thresh, mask)
 
 if pctrim :
-  _hist, _edges = np.histogram(inimgdata[mask], bins=256)
+  _hist, _edges = np.histogram(dataSub[mask], bins=256)
   _cdf = np.cumsum(_hist) / float(np.sum(_hist))
   _pcthresh = 1e-3
   _pctrimthreshbin = np.searchsorted(_cdf, _pcthresh)
   _thresh = _edges[_pctrimthreshbin+1]
-  mask = np.logical_and(inimgdata > _thresh, mask)
+  mask = np.logical_and(dataSub > _thresh, mask)
 
-datamasked = inimgdata[mask]
-datalog = np.copy(inimgdata)
+
+datamasked = dataSub[mask]
+datalog = np.copy(dataSub)
 datalog[mask] = np.log(datalog[mask])
 datalog[np.logical_not(mask)] = 0
 datalogmasked = datalog[mask]
@@ -179,16 +187,17 @@ else:
   levelfwhm = args.fwhm * np.ones(args.maxlevel)
 
 if args.unregularized:
-  splsm3d = SplineSmooth3DUnregularized(datalog,
-                                        nib.affines.voxel_sizes(inimg.affine),
+  splsm3d = SplineSmooth3DUnregularized(datalog, dataSubVoxSize,
                                         args.dist, domainMethod="minc",
                                         mask=mask)
 else:
   effLambda=args.Lambda / subsamp**3
-  splsm3d = SplineSmooth3D(datalog, nib.affines.voxel_sizes(inimg.affine),
+  splsm3d = SplineSmooth3D(datalog, dataSubVoxSize,
                            args.dist, domainMethod="minc", mask=mask,
                            Lambda=effLambda,
                            costDerivative=args.costDerivative)
+predictor = SplineSmooth3D(inimgdata, dataVoxSize,
+                           args.dist, domainMethod="minc", dofit=False)
 
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
@@ -218,7 +227,10 @@ for N in range(len(levels)):
     histfiltclip = np.clip(histfilt,0,None)
 
     if savehists:
-      os.mkdir(savehists)
+      try:
+        os.mkdir(savehists)
+      except FileExistsError:
+        pass
       np.save("{}/kdetracksteps-{:02d}".format(savehists,N),
               np.vstack((histval,hist)))
       #np.save("{}/kdetrackhist-{:02d}".format(savehists,N),datalogmaskedcur)
@@ -234,12 +246,15 @@ for N in range(len(levels)):
       logbc = logbc - np.mean(logbc)
     usegausspde=True
     if saveplots:
-      os.mkdir(saveplots)
+      try:
+        os.mkdir(saveplots)
+      except FileExistsError:
+        pass
       if usegausspde:
         updhist = kdepdf(histval, datalogmaskedupd, histbinwidth)
       else:
         updhist = kdepdf(histval, datalogmaskedupd, histbinwidth, kernelfntri)
-        histmax = hist.max()
+      histmax = hist.max()
       plt.title("Step {}, level {}, FWHM {:0.3f}".format(N,levels[N],thisFWHM))
       plt.plot(histval,updhist/updhist.max()*histmax,color="OrangeRed")
       plt.plot(histval,histfiltclip/histfiltclip.max()*histmax,color="DarkOrange")
@@ -253,10 +268,13 @@ for N in range(len(levels)):
     splsm3d.fit(datafill, reportingLevel=1)
     logbcsmfull = splsm3d.predict()
     if savefields:
-      os.mkdir(savefields)
-      tmpnii = nib.Nifti1Image(datafill, inimg.affine, inimg.header)
+      try:
+        os.mkdir(savefields)
+      except FileExistsError:
+        pass
+      tmpnii = nib.Nifti1Image(datafill, affineSub)
       nib.save(tmpnii,"{}/in-{:02d}.nii.gz".format(savefields,N))
-      tmpnii = nib.Nifti1Image(logbcsmfull, inimg.affine, inimg.header)
+      tmpnii = nib.Nifti1Image(logbcsmfull, affineSub)
       nib.save(tmpnii,"{}/out-{:02d}.nii.gz".format(savefields,N))
     logbcsm = logbcsmfull[mask]
 
@@ -289,16 +307,24 @@ for N in range(len(levels)):
       # estimate before refining.
       splsm3d.P = controlField
       splsm3d = splsm3d.promote()
+      predictor = predictor.promote()
       controlField = splsm3d.P
 
 if accumulate:
   splsm3d.P = controlField
 
-bfieldlog = splsm3d.predict()
+# Back from subsampled space to full size:
+predictor.P = splsm3d.P
+bfieldlog = predictor.predict()
 
 bfield = np.exp(bfieldlog)
 imgcorr = inimgdata / bfield
+#imgcorr = dataSub / bfield
 
+#imgcorrnii = nib.Nifti1Image(imgcorr, affineSub, inimg.header)
+#nib.save(imgcorrnii,outfile)
+#imgbfnii = nib.Nifti1Image(bfield, affineSub, inimg.header)
+#nib.save(imgbfnii,outfieldfile)
 imgcorrnii = nib.Nifti1Image(imgcorr, inimg.affine, inimg.header)
 nib.save(imgcorrnii,outfile)
 imgbfnii = nib.Nifti1Image(bfield, inimg.affine, inimg.header)
