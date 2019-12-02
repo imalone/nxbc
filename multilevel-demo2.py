@@ -324,7 +324,7 @@ for N in range(len(levels)):
     datalogcur[mask] = datalogmaskedcur
     if (conv < stopthr):
       nextlevel = levels[N] + 1
-    if subdivide and N<len(levels) and (N+1)%steps == 0:
+    if subdivide and (N+1)<len(levels) and (N+1)%steps == 0:
       # Applies to both cumulative and normal iterative
       # mode, in normal iterative mode we're just upgrading
       # to a finer mesh for the following updates.
