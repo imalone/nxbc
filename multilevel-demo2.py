@@ -7,6 +7,7 @@ from builtins import *
 import sys
 import argparse
 import os
+import errno
 
 import numpy as np
 #%matplotlib inline  
@@ -177,6 +178,16 @@ datalog[np.logical_not(mask)] = 0
 datalogmasked = datalog[mask]
 datafill = np.zeros_like(datalog)
 
+if savefields:
+  try:
+    os.mkdir(savefields)
+  except OSError as e:
+    if e.errno == errno.EEXIST:
+      pass
+    else:
+      raise
+  tmpnii = nib.Nifti1Image(mask*1, affineSub)
+  nib.save(tmpnii,"{}/mask.nii.gz".format(savefields))
 
 datalogmaskedcur = np.copy(datalogmasked)
 eps=0.01
@@ -234,8 +245,11 @@ for N in range(len(levels)):
     if savehists:
       try:
         os.mkdir(savehists)
-      except FileExistsError:
-        pass
+      except OSError as e:
+        if e.errno == errno.EEXIST:
+          pass
+        else:
+          raise
       np.save("{}/kdetracksteps-{:02d}".format(savehists,N),
               np.vstack((histval,hist)))
       #np.save("{}/kdetrackhist-{:02d}".format(savehists,N),datalogmaskedcur)
@@ -253,8 +267,11 @@ for N in range(len(levels)):
     if saveplots:
       try:
         os.mkdir(saveplots)
-      except FileExistsError:
-        pass
+      except OSError as e:
+        if e.errno == errno.EEXIST:
+          pass
+        else:
+          raise
       if usegausspde:
         updhist = kdepdf(histval, datalogmaskedupd, histbinwidth)
       else:
@@ -275,8 +292,11 @@ for N in range(len(levels)):
     if savefields:
       try:
         os.mkdir(savefields)
-      except FileExistsError:
-        pass
+      except OSError as e:
+        if e.errno == errno.EEXIST:
+          pass
+        else:
+          raise
       tmpnii = nib.Nifti1Image(datafill, affineSub)
       nib.save(tmpnii,"{}/in-{:02d}.nii.gz".format(savefields,N))
       tmpnii = nib.Nifti1Image(logbcsmfull, affineSub)
@@ -310,14 +330,14 @@ for N in range(len(levels)):
       # to a finer mesh for the following updates.
       # In cumulative mode we first get the current cumulative
       # estimate before refining.
-      splsm3d.P = controlField
+      if accumulate:
+        splsm3d.P = controlField
       splsm3d = splsm3d.promote()
       predictor = predictor.promote()
       controlField = splsm3d.P
 
 if accumulate:
   splsm3d.P = controlField
-
 # Back from subsampled space to full size:
 predictor.P = splsm3d.P
 bfieldlog = predictor.predict()
