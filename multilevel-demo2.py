@@ -144,7 +144,12 @@ dataSubVoxSize = dataVoxSize
 
 
 if subsamp :
-  offset = subsamp // 2
+  # Can't use offset != 0 yet, as the spline smoother takes voxel positions
+  # to start from 0, meaning some small interface changes to:
+  # 1. control initial voxel offsets
+  # 2. keep domain consistent allowing same parameters to be used to
+  #    supersample from the spline model.
+  offset = 0 # subsamp // 2
   dataSub = dataSub[offset::subsamp,offset::subsamp,offset::subsamp]
   mask = mask[offset::subsamp,offset::subsamp,offset::subsamp]
   affineSub[0:3,3] = affineSub[0:3,0:3].sum(1) * offset + affineSub[0:3,3]
