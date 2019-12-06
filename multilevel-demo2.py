@@ -188,6 +188,8 @@ if savefields:
       raise
   tmpnii = nib.Nifti1Image(mask*1, affineSub)
   nib.save(tmpnii,"{}/mask.nii.gz".format(savefields))
+  if accumulate:
+    accumulateSaveField = np.zeros(datalog.shape)
 
 datalogmaskedcur = np.copy(datalogmasked)
 eps=0.01
@@ -299,7 +301,11 @@ for N in range(len(levels)):
           raise
       tmpnii = nib.Nifti1Image(datafill, affineSub)
       nib.save(tmpnii,"{}/in-{:02d}.nii.gz".format(savefields,N))
-      tmpnii = nib.Nifti1Image(logbcsmfull, affineSub)
+      if accumulate:
+        accumulateSaveField += logbcsmfull
+      else:
+        accumulateSaveField = logbcsmfull
+      tmpnii = nib.Nifti1Image(accumulateSaveField, affineSub)
       nib.save(tmpnii,"{}/out-{:02d}.nii.gz".format(savefields,N))
     logbcsm = logbcsmfull[mask]
 
