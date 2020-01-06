@@ -25,6 +25,23 @@ from splinesmooth3d.splinesmooth3d import SplineSmooth3D, \
 from skimage import filters, restoration
 #import mba
 
+def lambdaCheck(lambdaStr):
+    try:
+        Lambda=float(lambdaStr)
+    except ValueError:
+        try:
+            lambdaParts = lambdaStr.split(',')
+            lambdaParts = [float(x) for x in lambdaParts]
+            lenParts = len(lambdaParts)
+            if (lenParts>3):
+                raise ValueError("Must be less than 4 parts to lambda")
+            Lambda = {deriv:lam for (deriv,lam) in
+                zip(range(lenParts),lambdaParts)}
+        except AttributeError:
+            raise ValueError("lambda must be floating point or comma-separated string of floating points")
+    return Lambda
+
+
 FileType=argparse.FileType
 parser = argparse.ArgumentParser(description='Test multilevel bias corrector.')
 parser.add_argument('--infile','-i', metavar='INIMAGE',
@@ -71,7 +88,7 @@ parser.add_argument('--savefields', default=None, type=str,
                     help="directory name to save intermediate field estimates")
 parser.add_argument('--accumulate', action='store_true',
                     help="use accumulated bias field fitting (N4 style)")
-parser.add_argument('--Lambda', '-L', default=1.0, type=float,
+parser.add_argument('--Lambda', '-L', default=1.0, type=lambdaCheck,
                     help="spline smoothing lambda (image level)")
 parser.add_argument('--subdivide', action='store_true',
                     help="subdivide mesh at each level")
@@ -209,7 +226,10 @@ if args.unregularized:
                                         args.dist, domainMethod="minc",
                                         mask=mask)
 else:
-  effLambda=args.Lambda / subsamp**3
+  try:
+    effLambda=args.Lambda / subsamp**3
+  except TypeError:
+    effLambda = {d:l/subsamp**3 for d,l in args.Lambda.items()}
   splsm3d = SplineSmooth3D(datalog, dataSubVoxSize,
                            args.dist, domainMethod="minc", mask=mask,
                            Lambda=effLambda,
@@ -356,7 +376,7 @@ imgcorr = inimgdata / bfield
 #nib.save(imgcorrnii,outfile)
 #imgbfnii = nib.Nifti1Image(bfield, affineSub, inimg.header)
 #nib.save(imgbfnii,outfieldfile)
-imgcorrnii = nib.Nifti1Image(imgcorr, inimg.affine, inimg.header)
+imgcorrnii = nib.Nifti1Image(imgcorr, inimg.affine) #, inimg.header)
 nib.save(imgcorrnii,outfile)
-imgbfnii = nib.Nifti1Image(bfield, inimg.affine, inimg.header)
+imgbfnii = nib.Nifti1Image(bfield, inimg.affine) #, inimg.header)
 nib.save(imgbfnii,outfieldfile)
