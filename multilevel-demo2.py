@@ -376,7 +376,8 @@ imgcorr = inimgdata / bfield
 #nib.save(imgcorrnii,outfile)
 #imgbfnii = nib.Nifti1Image(bfield, affineSub, inimg.header)
 #nib.save(imgbfnii,outfieldfile)
-imgcorrnii = nib.Nifti1Image(imgcorr, inimg.affine) #, inimg.header)
+imgcorrnii = nib.Nifti1Image(imgcorr.astype(np.float32), inimg.affine) #, inimg.header)
 nib.save(imgcorrnii,outfile)
-imgbfnii = nib.Nifti1Image(bfield, inimg.affine) #, inimg.header)
-nib.save(imgbfnii,outfieldfile)
+if outfieldfile is not None:
+  imgbfnii = nib.Nifti1Image(bfield.astype(np.float32), inimg.affine) #, inimg.header)
+  nib.save(imgbfnii,outfieldfile)
