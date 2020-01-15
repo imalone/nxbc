@@ -61,7 +61,7 @@ def wiener_filter_withpad(signal, filt, filtmid, Z):
   # in the padding, don't need to remove it from the start afterwards
   # as deconvolution shifts the signal back
   # The entirety of the padding is removed from the end.
-  sigpad = np.pad(signal, ((filtbins-filtmid),filtmid),
+  sigpad = np.pad(signal, ((filtbins-(filtmid+1)),filtmid),
     'constant', constant_values=(padval, padval))
   filtpad = np.pad(filt, (0,sigpad.shape[0]-filt.shape[0]),
     'constant', constant_values=(0, 0))
