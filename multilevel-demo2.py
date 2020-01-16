@@ -80,6 +80,9 @@ parser.add_argument('--thr','-t', type=float,
 parser.add_argument('--dist','-d', type=float,
                     default=150,
                     help='spline spacing (mm)')
+parser.add_argument('--ITKspacing','-I', action='store_true',
+                    help='Use ITK spacing, adjust so single interval over '
+                    +'each image dimension.')
 parser.add_argument('--savehists', default=None, type=str,
                     help="directory name to save histogram files")
 parser.add_argument('--saveplots', default=None, type=str,
@@ -96,15 +99,17 @@ parser.add_argument('--unregularized', action='store_true',
                     help="subdivide mesh at each level")
 parser.add_argument('--costDerivative', type=int, default=2,
                     help="derivative order for cost function")
-
+parser.add_argument('--reduceFOV', action='store_true',
+                    help="Reduce regularization FOV to bounding"+\
+                    "box of mask/above threshold region")
 
 if False:
-  args="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
+  argstr="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
     "-p -f 10 -s20 -l4 "+\
     "-o testmultilevel/xfad-1015-itml-optrembmv-s20-f10-l4-bc.nii.gz "+\
     "-b testmultilevel/xfad-1015-itml-optrembmv-s20-f10-l4-bf.nii.gz " +\
     "-r 2"
-  args=args.split(" ")
+  args=argstr.split(" ")
   args = parser.parse_args(args)
 else:
   args = parser.parse_args()
@@ -117,6 +122,7 @@ Z=0.01
 maskfile = args.mask
 withotsu = args.otsu
 pctrim = args.pctrim
+reduceFOV = args.reduceFOV
 Nbins=256
 steps=args.stepsperlevel
 fwhmfrac = args.sigmafrac
@@ -159,6 +165,7 @@ dataSub = inimgdata
 dataVoxSize = nib.affines.voxel_sizes(inimg.affine)
 affineSub = np.copy(inimg.affine)
 dataSubVoxSize = dataVoxSize
+spacing=args.dist
 
 
 if subsamp :
@@ -174,6 +181,10 @@ if subsamp :
   affineSub[0:3,0:3] *= subsamp
   dataSubVoxSize = nib.affines.voxel_sizes(affineSub)
 
+if args.ITKspacing:
+    spacing = 1
+    dataSubVoxSize = 1 / (np.array(dataSub.shape) -1)
+    dataVoxSize = dataSubVoxSize / subsamp
 
 if withotsu :
   _thresh = filters.threshold_otsu(dataSub[mask])
@@ -187,6 +198,18 @@ if pctrim :
   _thresh = _edges[_pctrimthreshbin+1]
   mask = np.logical_and(dataSub > _thresh, mask)
 
+bboxFOV=None
+if reduceFOV:
+  allAx = range(3)
+  bboxFOV=[]
+  for ax in allAx:
+    otherAx = np.delete(allAx,ax)
+    alongAx=np.any(mask, axis=tuple(otherAx))
+    ends=alongAx.nonzero()[0][[0,-1]]
+    bboxFOV.append(ends*dataSubVoxSize[ax])
+    inds=np.arange(ends[0],ends[1]+1)
+    dataSub=dataSub.take(inds,ax)
+    mask=mask.take(inds,ax)
 
 datamasked = dataSub[mask]
 datalog = np.copy(dataSub)
@@ -211,7 +234,6 @@ if savefields:
 datalogmaskedcur = np.copy(datalogmasked)
 eps=0.01
 min_fill=0.5
-
 # Descending FWHM scheme
 levels=[ lvl for lvl in range(args.maxlevel) for _ in range(steps) ]
 # At some point will have to generalise into fwhm and subdivision
@@ -223,20 +245,32 @@ else:
 
 if args.unregularized:
   splsm3d = SplineSmooth3DUnregularized(datalog, dataSubVoxSize,
-                                        args.dist, domainMethod="minc",
+                                        spacing, domainMethod="minc",
                                         mask=mask)
 else:
-  try:
-    effLambda=args.Lambda / subsamp**3
-  except TypeError:
-    effLambda = {d:l/subsamp**3 for d,l in args.Lambda.items()}
+  if subsamp:
+    try:
+      effLambda=args.Lambda / float(subsamp)**3
+    except TypeError:
+      effLambda = {d:l/subsamp**3 for d,l in args.Lambda.items()}
+  else:
+    effLambda = args.Lambda
   splsm3d = SplineSmooth3D(datalog, dataSubVoxSize,
-                           args.dist, domainMethod="minc", mask=mask,
+                           spacing, domainMethod="minc", mask=mask,
                            Lambda=effLambda,
                            costDerivative=args.costDerivative)
-predictor = SplineSmooth3D(inimgdata, dataVoxSize,
-                           args.dist, domainMethod="minc", dofit=False)
 
+
+# Prediction interpolator, shift knot locations to match the
+# reduced FOV region.
+if bboxFOV is None:
+  predictor = SplineSmooth3D(inimgdata, dataVoxSize,
+                           spacing, knts=splsm3d.kntsArr, dofit=False)
+else:
+  predKnts = [ (knts[0],knts[1]+limits[0]) for
+               knts, limits in zip(splsm3d.kntsArr, bboxFOV) ]
+  predictor = SplineSmooth3D(inimgdata, dataVoxSize,
+                             spacing, knts=predKnts, dofit=False)
 lastinterpbc = np.zeros(datalogmasked.shape[0])
 datalogcur = np.copy(datalog)
 nextlevel = 0
@@ -250,7 +284,7 @@ for N in range(len(levels)):
       continue
     nextlevel = levels[N]
     hist,histvaledge,histval,histbinwidth = \
-      distrib_kde(datalogmaskedcur, Nbins)
+      distrib_kde(datalogmaskedcur, Nbins, kernfn=kernelfntri)
     #thisFWHM = optFWHM(hist,histbinwidth)
     #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
     thisFWHM = levelfwhm[levels[N]] # * math.sqrt(8*math.log(2))
@@ -263,7 +297,6 @@ for N in range(len(levels)):
 
     histfilt = wiener_filter_withpad(hist, mfilt, mfiltmid, Z)
     histfiltclip = np.clip(histfilt,0,None)
-
     if savehists:
       try:
         os.mkdir(savehists)
@@ -350,7 +383,8 @@ for N in range(len(levels)):
     datalogcur[mask] = datalogmaskedcur
     if (conv < stopthr):
       nextlevel = levels[N] + 1
-    if subdivide and (N+1)<len(levels) and (N+1)%steps == 0:
+    if subdivide and (N+1)<len(levels) and N%steps == 0:
+      print ("subdividing")
       # Applies to both cumulative and normal iterative
       # mode, in normal iterative mode we're just upgrading
       # to a finer mesh for the following updates.
@@ -375,7 +409,7 @@ imgcorr = inimgdata / bfield
 #imgcorrnii = nib.Nifti1Image(imgcorr, affineSub, inimg.header)
 #nib.save(imgcorrnii,outfile)
 #imgbfnii = nib.Nifti1Image(bfield, affineSub, inimg.header)
-#nib.save(imgbfnii,outfieldfile)
+#nib.save(imgbfnii,outfieldfile) #.astype(np.float32)
 imgcorrnii = nib.Nifti1Image(imgcorr.astype(np.float32), inimg.affine) #, inimg.header)
 nib.save(imgcorrnii,outfile)
 if outfieldfile is not None:
