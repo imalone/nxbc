@@ -212,7 +212,10 @@ if reduceFOV:
     mask=mask.take(inds,ax)
 
 datamasked = dataSub[mask]
-datalog = np.copy(dataSub)
+# Since assigning into it we need to make sure float
+# beforehand, otherwise assigning into int array will
+# cause a cast
+datalog = dataSub.astype(np.float32)
 datalog[mask] = np.log(datalog[mask])
 datalog[np.logical_not(mask)] = 0
 datalogmasked = datalog[mask]
@@ -288,8 +291,18 @@ for N in range(len(levels)):
     #thisFWHM = optFWHM(hist,histbinwidth)
     #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
     thisFWHM = levelfwhm[levels[N]] # * math.sqrt(8*math.log(2))
-    #thisSD = picksdremmeanvar(datalogcur, mask)
-    #thisFWHM = thisSD * math.sqrt(8*math.log(2))
+    tuneSD=False
+    if tuneSD:
+      retry=True
+      sampsize=300
+      while retry:
+        try:
+          thisSD = picksdremmeanvar(datalogcur, mask>0, sampsize=300) / 10
+          retry=False
+        except ValueError:
+          sampsize=1000
+          print("Retrying picksdremmeanvar")
+      thisFWHM = thisSD * math.sqrt(8*math.log(2))
     thisSD = thisFWHM /  math.sqrt(8*math.log(2))
     #thisFWHM = thisFWHM / fwhmfrac
     print ("reduced sigma {} fwhm {}".format(thisSD, thisFWHM))
