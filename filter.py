@@ -209,7 +209,7 @@ def distrib_kde(data,Nbins, bw=None, kernfn=kernelfngauss):
     return hist,histvaledge,histval,histbinwidth
 
 
-def getblockstats(data, mask, blocksize=7, sampsize=100):
+def getblockstats(data, mask, blocksize=7, sampsize=100, debug=False):
   np.random.seed()
   masklist = np.argwhere(mask)
   blockneg=-blocksize//2
@@ -220,8 +220,8 @@ def getblockstats(data, mask, blocksize=7, sampsize=100):
   blockcohen2 = []
   blockn = []
   while (len(blockvar) < sampsize):
-    choice = np.random.choice(range(masklist.shape[0]))
-    if (len(blockvar)==0):
+    choice=np.random.randint(0,masklist.shape[0]-1)
+    if (len(blockvar)==0 and debug):
       print ("blocksize {} first block {}".format(blocksize,choice))
     blockcentre = masklist[choice]
     #includedallax = np.zeros(mask.shape)
@@ -233,7 +233,11 @@ def getblockstats(data, mask, blocksize=7, sampsize=100):
     #includedallax[np.ix_(*subidx)] = 1
     #includedallax = np.logical_and(mask, includedallax)
     #blockvals = data[includedallax]
+    blockmask = mask[np.ix_(*subidx)]
+    if (np.sum(blockmask)<2):
+      continue
     blockvals = data[np.ix_(*subidx)]
+    blockvals = blockvals[blockmask]
     blockvar.append(np.var(blockvals,ddof=1))
     blockmean.append(np.average(blockvals))
     blockn.append(blockvals.shape[0])
@@ -320,10 +324,17 @@ def picksdremmeanvar(data, mask, sampsize=100, bw=4):
   bvvls = bvvKreg.fit(bsrange)[0]
   bmvKreg = kreg.KernelReg(bmv,bsrange,"c",bw=[bw])
   bmvls = bmvKreg.fit(bsrange)[0]
-  bvvmaxind = np.argmax(bvvls)
-  searchind = (bvvmaxind+1)*2 - 1
-  s2 =  bmvls[searchind]
-  print ("maxind {}, searchind {}, searchbs {}, bmv0 {} bmvind {} s2 {}".format(bvvmaxind, searchind, bsrange[searchind], bmvls[0], bmvls[searchind], s2))
+  #import matplotlib
+  ##matplotlib.use('TkAgg')
+  #import matplotlib.pyplot as plt
+  #plt.plot(bmvls,color="Blue")
+  #plt.plot(np.sqrt(bvvls),color="Red")
+  #plt.show()
+  #bvvmaxind = np.argmax(bvvls)
+  #searchind = (bvvmaxind+1)*2 - 1
+  #s2 =  bmvls[searchind]
+  s2 = bmvls[0] - np.sqrt(bvvls[0])
+  print ("bmvls0 {} sqrt bvvls0 {} s2 {}".format(bmvls[0], np.sqrt(bvvls[0]), s2))
   s = math.sqrt(s2)
   print(s)
   return s
@@ -344,10 +355,17 @@ def singlepicksdremmeanvar(data, mask, sampsize=100, bw=4):
   bvvls = bvvKreg.fit(bsrange)[0]
   bmvKreg = kreg.KernelReg(bmv,bsrange,"c",bw=[bw])
   bmvls = bmvKreg.fit(bsrange)[0]
-  bvvmaxind = np.argmax(bvvls)
-  searchind = (bvvmaxind+1)*2 - 1
-  s2 =  bmvls[searchind]
-  print ("maxind {}, searchind {}, searchbs {}, bmv0 {} bmvind {} s2 {}".format(bvvmaxind, searchind, bsrange[searchind], bmvls[0], bmvls[searchind], s2))
+  #import matplotlib
+  ##matplotlib.use('TkAgg')
+  #import matplotlib.pyplot as plt
+  #plt.plot(bmvls,color="Blue")
+  #plt.plot(np.sqrt(bvvls),color="Red")
+  #plt.show()
+  #bvvmaxind = np.argmax(bvvls)
+  #searchind = (bvvmaxind+1)*2 - 1
+  #s2 =  bmvls[searchind]
+  s2 = bmvls[0] - np.sqrt(bvvls[0])
+  print ("bmvls0 {} sqrt bvvls0 {} s2 {}".format(bmvls[0], np.sqrt(bvvls[0]), s2))
   s = math.sqrt(s2)
   print(s)
   return s
