@@ -103,6 +103,9 @@ parser.add_argument('--fwhm', type=float,
 parser.add_argument('--nbins', type=int,
                     default=256,
                     help='FWHM for log histogram deconvolution')
+parser.add_argument('--no-log',
+                    action='store_true',
+                    help='Use log values')
 
 if False:
   argstr="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
@@ -121,7 +124,6 @@ outbase = args.outbase
 Z=0.01
 maskfile = args.mask
 Nbins=args.nbins
-
 
 print("Running, input {}, output {}, mask {}".format(
   infile,
@@ -147,7 +149,8 @@ dataSubVoxSize = dataVoxSize
 datamasked = dataSub[mask]
 
 datalog = np.copy(dataSub)
-datalog[mask] = np.log(datalog[mask])
+if not args.no_log:
+  datalog[mask] = np.log(datalog[mask])
 datalog[np.logical_not(mask)] = 0
 datalogmasked = datalog[mask]
 datafill = np.zeros_like(datalog)
