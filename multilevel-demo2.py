@@ -102,6 +102,9 @@ parser.add_argument('--costDerivative', type=int, default=2,
 parser.add_argument('--reduceFOV', action='store_true',
                     help="Reduce regularization FOV to bounding"+\
                     "box of mask/above threshold region")
+parser.add_argument('--kern', choices=['tri','gauss'],
+                    help="Kernel function to use (tri => Parzen,"+\
+                    "gauss => gauss KDE)", default='tri')
 
 if False:
   argstr="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
@@ -280,6 +283,10 @@ nextlevel = 0
 
 controlField=None
 
+chosenkernelfn = kernelfntri
+if args.kern == "gauss":
+  chosenkernelfn = kernelfngauss
+
 for N in range(len(levels)):
     if N%1 == 0 :
         print("{}/{}".format(N,len(levels)))
@@ -287,7 +294,7 @@ for N in range(len(levels)):
       continue
     nextlevel = levels[N]
     hist,histvaledge,histval,histbinwidth = \
-      distrib_kde(datalogmaskedcur, Nbins, kernfn=kernelfntri)
+      distrib_kde(datalogmaskedcur, Nbins, kernfn=chosenkernelfn)
     #thisFWHM = optFWHM(hist,histbinwidth)
     #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
     thisFWHM = levelfwhm[levels[N]] # * math.sqrt(8*math.log(2))
