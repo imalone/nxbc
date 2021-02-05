@@ -106,6 +106,9 @@ parser.add_argument('--nbins', type=int,
 parser.add_argument('--no-log',
                     action='store_true',
                     help='Use log values')
+parser.add_argument('--binCentreLimits', action='store_true',
+                    help="Place end bin centres on data limits, rather"
+                    " than bin edges on limits.")
 
 if False:
   argstr="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
@@ -163,13 +166,14 @@ levelfwhm = args.fwhm
 
 datalogcur = np.copy(datalog)
 hist,histvaledge,histval,histbinwidth = \
-    distrib_kde(datalogmaskedcur, Nbins, kernfn=kernelfntri)
+    distrib_kde(datalogmaskedcur, Nbins, kernfn=kernelfntri,
+      binCentreLimits=args.binCentreLimits   )
     #quick_kde(datalogmaskedcur, Nbins, kernfn=kernelfntri)
     #quick_kde2(datalogmaskedcur, Nbins, kernfn=kernelfntri)
 #thisFWHM = optFWHM(hist,histbinwidth)
 #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
 histsave = np.vstack((histval,hist))
-np.savetxt("test.csv",histsave.T)
+np.savetxt(outbase+"-kde.csv",histsave.T)
 thisFWHM = levelfwhm # * math.sqrt(8*math.log(2))
 #thisSD = picksdremmeanvar(datalogcur, mask)
 #thisFWHM = thisSD * math.sqrt(8*math.log(2))
@@ -187,12 +191,12 @@ datalogcur[mask] = datalogmaskedupd
 uestsave = np.vstack((histval,uest))
 np.savetxt(outbase+"-uest.csv",uestsave.T)
 filtsave = np.vstack((histval,histfiltclip))
-np.savetxt(outbase+"-histfilt.csv",filtsave.T)
+np.savetxt(outbase+"-kdefilt.csv",filtsave.T)
 
 histnew,histvaledgenew,histvalnew,histbinwidthnew = \
     distrib_kde(datalogmaskedupd, Nbins, kernfn=kernelfntri)
 histsharpsave = np.vstack((histvalnew,histnew))
-np.savetxt(outbase+"-histsharp.csv",histsharpsave.T)
+np.savetxt(outbase+"-kdesharp.csv",histsharpsave.T)
 
 imgcorrnii = nib.Nifti1Image(datalogcur.astype(np.float32), inimg.affine) #, inimg.header)
 nib.save(imgcorrnii,outbase+".nii.gz")

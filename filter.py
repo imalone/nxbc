@@ -197,12 +197,26 @@ def distrib_histo(data, Nbins):
     return hist,histvaledge,histval,histbinwidth
 
 
-def distrib_kde(data,Nbins, bw=None, kernfn=kernelfngauss):
-    histvaledge = np.linspace(data.min(),data.max(),
-        num=Nbins+1)
-    histwidth = histvaledge[-1] - histvaledge[0]
-    histval = (histvaledge[0:-1] + histvaledge[1:])/2
-    histbinwidth = histwidth / (histval.shape[0]-1)
+def distrib_kde(data,Nbins, bw=None, kernfn=kernelfngauss,
+                binCentreLimits=False):
+    # The binCentreLimits==False behaviour produces the same
+    # bins as numpy.histogram, with binCentreLimits==True
+    # the first and last bin centres are on the minimum and
+    # maximum values. For histogram sharpening this will
+    # lead to slight divergence at the extrema.
+    if binCentreLimits:
+      histval = np.linspace(data.min(),data.max(),
+          num=Nbins)
+      histwidth = histval[-1] - histval[0]
+      histbinwidth = histwidth / (histval.shape[0]-1)
+      histvaledge = histval - histbinwidth/2
+      histvaledge = np.append(histvaledge, histval[-1] - histbinwidth/2)
+    else:
+      histvaledge = np.linspace(data.min(),data.max(),
+          num=Nbins+1)
+      histwidth = histvaledge[-1] - histvaledge[0]
+      histval = (histvaledge[0:-1] + histvaledge[1:])/2
+      histbinwidth = histwidth / (histval.shape[0]-1)
     if bw is None:
       bw = histbinwidth
     hist = kdepdf(histval, data, bw, kernfn=kernfn)
