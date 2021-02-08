@@ -213,7 +213,6 @@ def distrib_kde(data,Nbins, bw=None, kernfn=kernelfngauss,
       histvaledge = np.append(histvaledge, histval[-1] - histbinwidth/2)
     else:
       if binPastLimits:
-        print("hi")
         histwidthshort = data.max() - data.min()
         histbinwidthshort = histwidthshort / (Nbins-2)
         histlim=(data.min()-histbinwidthshort,

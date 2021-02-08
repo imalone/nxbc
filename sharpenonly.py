@@ -109,6 +109,9 @@ parser.add_argument('--no-log',
 parser.add_argument('--binCentreLimits', action='store_true',
                     help="Place end bin centres on data limits, rather"
                     " than bin edges on limits.")
+parser.add_argument('--binPastLimits', action='store_true',
+                    help="Place bin edges exactly one bin width past"
+                    " data limits.")
 
 if False:
   argstr="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
@@ -164,10 +167,18 @@ eps=0.01
 min_fill=0.5
 levelfwhm = args.fwhm
 
+# Would like to re-use the input arguments easily, but may eventually
+# also wish to compare alternatives.
+def set_distrib_kde(datalogmaskedcur, Nbins, kernfn=kernelfntri,
+      binCentreLimits=args.binCentreLimits,
+      binPastLimits=args.binPastLimits):
+  return distrib_kde(datalogmaskedcur, Nbins, kernfn=kernfn,
+                     binCentreLimits=binCentreLimits,
+                     binPastLimits=binPastLimits)
+
 datalogcur = np.copy(datalog)
 hist,histvaledge,histval,histbinwidth = \
-    distrib_kde(datalogmaskedcur, Nbins, kernfn=kernelfntri,
-      binCentreLimits=args.binCentreLimits   )
+    set_distrib_kde(datalogmaskedcur, Nbins)
     #quick_kde(datalogmaskedcur, Nbins, kernfn=kernelfntri)
     #quick_kde2(datalogmaskedcur, Nbins, kernfn=kernelfntri)
 #thisFWHM = optFWHM(hist,histbinwidth)
@@ -194,7 +205,7 @@ filtsave = np.vstack((histval,histfiltclip))
 np.savetxt(outbase+"-kdefilt.csv",filtsave.T)
 
 histnew,histvaledgenew,histvalnew,histbinwidthnew = \
-    distrib_kde(datalogmaskedupd, Nbins, kernfn=kernelfntri)
+    set_distrib_kde(datalogmaskedupd, Nbins)
 histsharpsave = np.vstack((histvalnew,histnew))
 np.savetxt(outbase+"-kdesharp.csv",histsharpsave.T)
 
