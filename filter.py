@@ -198,7 +198,7 @@ def distrib_histo(data, Nbins):
 
 
 def distrib_kde(data,Nbins, bw=None, kernfn=kernelfngauss,
-                binCentreLimits=False):
+                binCentreLimits=False, binPastLimits=False):
     # The binCentreLimits==False behaviour produces the same
     # bins as numpy.histogram, with binCentreLimits==True
     # the first and last bin centres are on the minimum and
@@ -212,8 +212,18 @@ def distrib_kde(data,Nbins, bw=None, kernfn=kernelfngauss,
       histvaledge = histval - histbinwidth/2
       histvaledge = np.append(histvaledge, histval[-1] - histbinwidth/2)
     else:
-      histvaledge = np.linspace(data.min(),data.max(),
-          num=Nbins+1)
+      if binPastLimits:
+        print("hi")
+        histwidthshort = data.max() - data.min()
+        histbinwidthshort = histwidthshort / (Nbins-2)
+        histlim=(data.min()-histbinwidthshort,
+                 data.max()+histbinwidthshort)
+      else:
+        histlim=(data.min(), data.max())
+      histvaledge = np.linspace(histlim[0],
+                                histlim[1],
+                                num=Nbins+1)
+      # We recalculate all to make sure they're consistent
       histwidth = histvaledge[-1] - histvaledge[0]
       histval = (histvaledge[0:-1] + histvaledge[1:])/2
       histbinwidth = histwidth / (histval.shape[0])
