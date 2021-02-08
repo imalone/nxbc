@@ -216,7 +216,7 @@ def distrib_kde(data,Nbins, bw=None, kernfn=kernelfngauss,
           num=Nbins+1)
       histwidth = histvaledge[-1] - histvaledge[0]
       histval = (histvaledge[0:-1] + histvaledge[1:])/2
-      histbinwidth = histwidth / (histval.shape[0]-1)
+      histbinwidth = histwidth / (histval.shape[0])
     if bw is None:
       bw = histbinwidth
     hist = kdepdf(histval, data, bw, kernfn=kernfn)
