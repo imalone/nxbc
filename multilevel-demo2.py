@@ -65,15 +65,15 @@ parser.add_argument('--sigmafrac','-f', type=float,
 parser.add_argument('--fwhm', type=float,
                     default=0.15,
                     help='FWHM for log histogram deconvolution')
+parser.add_argument('--binCentreLimits', action='store_true',
+                    help="Place end bin centres on data limits, rather"
+                    " than bin edges on limits.")
 parser.add_argument('--maxlevel','-l', type=int,
                     default=1,
                     help='Maximum level. Fitting is either repeated for each level at FWHM=(starting FWHM)/level or with a subdivided mesh (see --subdivide)')
 parser.add_argument('--sub','-r', type=int,
                     default=None,
                     help='sub sampling factor')
-parser.add_argument('--expansion','-e', type=float,
-                    default=1.0,
-                    help='expansion factor for control grid')
 parser.add_argument('--thr','-t', type=float,
                     default=1e-6,
                     help='stopping threshold to be used at each level')
@@ -122,6 +122,7 @@ outfile = args.outfile
 outfieldfile = args.bfield
 #FWHM=0.15
 Z=0.01
+bcl=args.binCentreLimits
 maskfile = args.mask
 withotsu = args.otsu
 pctrim = args.pctrim
@@ -130,7 +131,6 @@ Nbins=256
 steps=args.stepsperlevel
 fwhmfrac = args.sigmafrac
 subsamp = args.sub
-expand = args.expansion
 stopthr = args.thr
 
 savehists = args.savehists
@@ -138,10 +138,6 @@ saveplots= args.saveplots
 savefields=args.savefields
 accumulate=args.accumulate
 subdivide=args.subdivide
-
-if expand < 1:
-  print("Expansion factor must be >=1")
-  sys.exit(0)
 
 if (maskfile is None):
   withotsu = True
@@ -294,7 +290,8 @@ for N in range(len(levels)):
       continue
     nextlevel = levels[N]
     hist,histvaledge,histval,histbinwidth = \
-      distrib_kde(datalogmaskedcur, Nbins, kernfn=chosenkernelfn)
+      distrib_kde(datalogmaskedcur, Nbins, kernfn=chosenkernelfn,
+                  binCentreLimits=bcl)
     #thisFWHM = optFWHM(hist,histbinwidth)
     #thisFWHM = optEntropyFWHM(hist, histbinwidth, histval, datalogmaskedcur, distrib="kde")
     thisFWHM = levelfwhm[levels[N]] # * math.sqrt(8*math.log(2))
