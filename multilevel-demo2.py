@@ -18,7 +18,7 @@ import nibabel as nib
 from filter import *
 from plotsupport import *
 from smoothing import applyMINCSmooth
-from splinesmooth3d.splinesmooth3d import SplineSmooth3D, \
+from SplineSmooth3D.SplineSmooth3D import SplineSmooth3D, \
   SplineSmooth3DUnregularized
 from skimage import filters, restoration
 #import mba
