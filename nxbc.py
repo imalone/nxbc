@@ -6,6 +6,7 @@ import sys
 import argparse
 import os
 import errno
+import textwrap
 
 import numpy as np
 #%matplotlib inline  
@@ -40,8 +41,55 @@ def lambdaCheck(lambdaStr):
     return Lambda
 
 
+class MultilineFormatter(argparse.HelpFormatter):
+    def _fill_text(self, text, width, indent):
+        paragraphs = text.split('\n')
+        multiline_text = ""
+        lead = ""
+        for paragraph in paragraphs:
+            paragraph = self._whitespace_matcher.sub(' ', paragraph).strip()
+            if paragraph == "":
+              multiline_text+="\n"
+              lead=""
+            else:
+              formatted_paragraph = textwrap.fill(paragraph, width, initial_indent=indent, subsequent_indent=indent)
+              multiline_text = multiline_text + lead + formatted_paragraph
+              lead=" "
+        return multiline_text
+
 FileType=argparse.FileType
-parser = argparse.ArgumentParser(description='Test multilevel bias corrector.')
+parser = argparse.ArgumentParser(formatter_class=MultilineFormatter,
+                                 description="""
+NX bias correction
+
+
+Inhomogeneity bias correction for MRI images in NIfTI (.nii/.nii.gz) format.
+A reimplementation of N3 (Sled et al. 1998 https://doi.org/10.1109/42.668698) and N4 (Tustison et al. 2010 https://doi.org/10.1109/tmi.2010.2046908) supporting features of both.
+
+
+Usage examples
+
+
+In N3 mode with default Otsu mask, factor 2 subsampling and 75mm control point
+spacing:
+
+%(prog)s -r 2 -d 75 -i image.nii.gz -o imagenorm.nii.gz
+
+
+In N3 mode as above with a user-supplied mask:
+
+%(prog)s -r 2 -d 75 -i image.nii.gz -m mask.nii.gz -o imagenorm.nii.gz
+
+
+In N4 mode with default Otsu mask, factor 2 subsampling, 4 fitting levels:
+
+%(prog)s -r 2 --N4 -l4 -i image.nii.gz -o imagenorm.nii.gz
+
+
+In N4 mode with default Otsu mask, factor 2 subsampling, 4 fitting levels:
+
+%(prog)s -r 2 --N4 -l4 -i image.nii.gz -m mask.nii.gz -o imagenorm.nii.gz
+""")
 parser.add_argument('--infile','-i', metavar='INIMAGE',
                     help='input file', required=True)
 parser.add_argument('--mask','-m', metavar='MASKIMAGE',
