@@ -55,17 +55,17 @@ parser.add_argument('--otsu', action='store_true',
 parser.add_argument('--pctrim','-p', action='store_true',
                     help='If using mask image also use 0.1%% bottom trim')
 parser.add_argument('--stepsperlevel','-s', type=int,
-                    default=5,
+                    default=1000,
                     help='Steps per level')
-parser.add_argument('--sigmafrac','-f', type=float,
-                    default=5,
-                    help='Sigma fraction')
 parser.add_argument('--fwhm', type=float,
-                    default=0.15,
+                    default=0.05,
                     help='FWHM for log histogram deconvolution')
-parser.add_argument('--binCentreLimits', action='store_true',
-                    help="Place end bin centres on data limits, rather"
-                    " than bin edges on limits.")
+parser.add_argument('-Z', type=float,
+                    default=0.01,
+                    help='Noise estimate for Wiener deconvolution')
+parser.add_argument('--binEndLimits', action='store_true',
+                    help="Place end bin edges on data limits, rather"
+                    " than bin centres on limits.")
 parser.add_argument('--maxlevel','-l', type=int,
                     default=1,
                     help='Maximum level. Fitting is either repeated for each level at FWHM=(starting FWHM)/level or with a subdivided mesh (see --subdivide)')
@@ -73,7 +73,7 @@ parser.add_argument('--sub','-r', type=int,
                     default=None,
                     help='sub sampling factor')
 parser.add_argument('--thr','-t', type=float,
-                    default=1e-6,
+                    default=1e-4,
                     help='stopping threshold to be used at each level')
 parser.add_argument('--dist','-d', type=float,
                     default=150,
@@ -95,6 +95,8 @@ parser.add_argument('--subdivide', action='store_true',
                     help="subdivide mesh at each level")
 parser.add_argument('--unregularized', action='store_true',
                     help="subdivide mesh at each level")
+parser.add_argument('--N4', action='store_true',
+                    help='Use N4 features: ITKspacing, subdivide, unregularized, accumulate')
 parser.add_argument('--costDerivative', type=int, default=2,
                     help="derivative order for cost function")
 parser.add_argument('--reduceFOV', action='store_true',
@@ -103,31 +105,19 @@ parser.add_argument('--reduceFOV', action='store_true',
 parser.add_argument('--kern', choices=['tri','gauss'],
                     help="Kernel function to use (tri => Parzen,"+\
                     "gauss => gauss KDE)", default='tri')
-
-if False:
-  argstr="-i fad-1015-1-143136_gw.nii.gz -m fad-1015-1-143136_gw_mask.nii.gz "+\
-    "-p -f 10 -s20 -l4 "+\
-    "-o testmultilevel/xfad-1015-itml-optrembmv-s20-f10-l4-bc.nii.gz "+\
-    "-b testmultilevel/xfad-1015-itml-optrembmv-s20-f10-l4-bf.nii.gz " +\
-    "-r 2"
-  args=argstr.split(" ")
-  args = parser.parse_args(args)
-else:
-  args = parser.parse_args()
+args = parser.parse_args()
 
 infile = args.infile
 outfile = args.outfile
 outfieldfile = args.bfield
-#FWHM=0.15
-Z=0.01
-bcl=args.binCentreLimits
+Z=args.Z
+bcl=not args.binEndLimits
 maskfile = args.mask
 withotsu = args.otsu
 pctrim = args.pctrim
 reduceFOV = args.reduceFOV
 Nbins=256
 steps=args.stepsperlevel
-fwhmfrac = args.sigmafrac
 subsamp = args.sub
 stopthr = args.thr
 
@@ -136,6 +126,17 @@ saveplots= args.saveplots
 savefields=args.savefields
 accumulate=args.accumulate
 subdivide=args.subdivide
+ITKspacing=args.ITKspacing
+unregularized=args.unregularized
+maxlevel=args.maxlevel
+
+if args.N4:
+  ITKspacing=True
+  subdivide=True
+  unregularized=True
+  accumulate=True
+  if maxlevel == 1:
+    print("--N4 was specified, but maxlevel (-l) is 1, this may be a mistake")
 
 if (maskfile is None):
   withotsu = True
@@ -148,7 +149,7 @@ print("Options Otsu {}, pc-trim {}, bfield {}".format(
   withotsu,
   pctrim,
   outfieldfile))
-print("FWHM {} Z {:0.04f} nbins".format(None,Z,Nbins))
+print("FWHM {} Z {:0.04f} nbins {}".format(args.fwhm,Z,Nbins))
 
 inimg = nib.load(infile)
 inimgdata = inimg.get_fdata()
@@ -178,7 +179,7 @@ if subsamp :
   affineSub[0:3,0:3] *= subsamp
   dataSubVoxSize = nib.affines.voxel_sizes(affineSub)
 
-if args.ITKspacing:
+if ITKspacing:
     spacing = 1
     dataSubVoxSize = 1 / (np.array(dataSub.shape) -1)
     dataVoxSize = dataSubVoxSize / subsamp
@@ -235,15 +236,15 @@ datalogmaskedcur = np.copy(datalogmasked)
 eps=0.01
 min_fill=0.5
 # Descending FWHM scheme
-levels=[ lvl for lvl in range(args.maxlevel) for _ in range(steps) ]
+levels=[ lvl for lvl in range(maxlevel) for _ in range(steps) ]
 # At some point will have to generalise into fwhm and subdivision
 # level scheme, at the moment it's either or:
 if not subdivide:
-  levelfwhm = args.fwhm / (np.arange(args.maxlevel) + 1)
+  levelfwhm = args.fwhm / (np.arange(maxlevel) + 1)
 else:
-  levelfwhm = args.fwhm * np.ones(args.maxlevel)
+  levelfwhm = args.fwhm * np.ones(maxlevel)
 
-if args.unregularized:
+if unregularized:
   splsm3d = SplineSmooth3DUnregularized(datalog, dataSubVoxSize,
                                         spacing, domainMethod="minc",
                                         mask=mask)
@@ -306,7 +307,6 @@ for N in range(len(levels)):
           print("Retrying picksdremmeanvar")
       thisFWHM = thisSD * math.sqrt(8*math.log(2))
     thisSD = thisFWHM /  math.sqrt(8*math.log(2))
-    #thisFWHM = thisFWHM / fwhmfrac
     print ("reduced sigma {} fwhm {}".format(thisSD, thisFWHM))
     mfilt, mfiltx, mfiltmid, mfiltbins = symGaussFilt(thisSD, histbinwidth)
 

@@ -1,13 +1,13 @@
 #!/bin/bash
 
-BC=/srv/local/malone/test-py3-bc/py3-test/test-mod/biascorrection_testbed/multilevel-demo2.py
+BC=nxbc.py
 
-OPTCOM="--fwhm 0.05 -r 2 -s 1000 --thr 1e-4 --binCentreLimits"
+OPTCOM="--fwhm 0.05 -r 2 -s 1000 --thr 1e-4"
 
 n3_50="-d 50"
 n3_75="-d 75"
 n3_150="-d 150"
-n4="-I --subdivide --unregularized --accumulate"
+n4="--N4"
 n4_l3="$n4 -l3"
 n4_l4="$n4 -l4"
 n4_l5="$n4 -l5"
