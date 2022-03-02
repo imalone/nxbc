@@ -16,13 +16,11 @@ import matplotlib.pyplot as plt
 
 import nibabel as nib
 
-from filter import *
-from plotsupport import *
-from smoothing import applyMINCSmooth
+from nxbc.filter import *
+from nxbc.plotsupport import *
 from SplineSmooth3D.SplineSmooth3D import SplineSmooth3D, \
   SplineSmooth3DUnregularized
 from skimage import filters, restoration
-#import mba
 
 def lambdaCheck(lambdaStr):
     try:
