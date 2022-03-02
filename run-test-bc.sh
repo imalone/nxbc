@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BC=nxbc.py
+BC=nxbc
 
 OPTCOM="--fwhm 0.05 -r 2 -s 1000 --thr 1e-4"
 
