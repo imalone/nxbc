@@ -16,13 +16,11 @@ import matplotlib.pyplot as plt
 
 import nibabel as nib
 
-from filter import *
-from plotsupport import *
-from smoothing import applyMINCSmooth
+from nxbc.filter import *
+from nxbc.plotsupport import *
 from SplineSmooth3D.SplineSmooth3D import SplineSmooth3D, \
   SplineSmooth3DUnregularized
 from skimage import filters, restoration
-#import mba
 
 def lambdaCheck(lambdaStr):
     try:
@@ -108,6 +106,9 @@ parser.add_argument('--stepsperlevel','-s', type=int,
 parser.add_argument('--fwhm', type=float,
                     default=0.05,
                     help='FWHM for log histogram deconvolution')
+parser.add_argument('--nbins', type=int,
+                    default=256,
+                    help='FWHM for log histogram deconvolution')
 parser.add_argument('-Z', type=float,
                     default=0.01,
                     help='Noise estimate for Wiener deconvolution')
@@ -164,7 +165,7 @@ maskfile = args.mask
 withotsu = args.otsu
 pctrim = args.pctrim
 reduceFOV = args.reduceFOV
-Nbins=256
+Nbins=args.nbins
 steps=args.stepsperlevel
 subsamp = args.sub
 stopthr = args.thr

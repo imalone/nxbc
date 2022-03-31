@@ -15,13 +15,11 @@ import matplotlib.pyplot as plt
 
 import nibabel as nib
 
-from filter import *
-from plotsupport import *
-from smoothing import applyMINCSmooth
-from splinesmooth3d.splinesmooth3d import SplineSmooth3D, \
+from nxbc.filter import *
+from nxbc.plotsupport import *
+from SplineSmooth3D.SplineSmooth3D import SplineSmooth3D, \
   SplineSmooth3DUnregularized
 from skimage import filters, restoration
-#import mba
 
 def lambdaCheck(lambdaStr):
     try:
@@ -96,17 +94,20 @@ parser.add_argument('--mask','-m', metavar='MASKIMAGE',
 parser.add_argument('--outbase','-o', metavar='OUTBASE',
                     help='output file base name', required=True)
 parser.add_argument('--fwhm', type=float,
-                    default=0.15,
+                    default=0.05,
                     help='FWHM for log histogram deconvolution')
 parser.add_argument('--nbins', type=int,
                     default=256,
                     help='FWHM for log histogram deconvolution')
+parser.add_argument('-Z', type=float,
+                    default=0.01,
+                    help='Noise estimate for Wiener deconvolution')
 parser.add_argument('--no-log',
                     action='store_true',
                     help='Use log values')
-parser.add_argument('--binCentreLimits', action='store_true',
-                    help="Place end bin centres on data limits, rather"
-                    " than bin edges on limits.")
+parser.add_argument('--binEndLimits', action='store_true',
+                    help="Place end bin edges on data limits, rather"
+                    " than bin centres on limits.")
 parser.add_argument('--binPastLimits', action='store_true',
                     help="Place bin edges exactly one bin width past"
                     " data limits.")
@@ -124,8 +125,9 @@ else:
 
 infile = args.infile
 outbase = args.outbase
-#FWHM=0.15
-Z=0.01
+FWHM=args.fwhm
+Z=args.Z
+bcl=not args.binEndLimits
 maskfile = args.mask
 Nbins=args.nbins
 
@@ -133,7 +135,7 @@ print("Running, input {}, output {}, mask {}".format(
   infile,
   outbase,
   maskfile))
-print("FWHM {} Z {:0.04f} nbins".format(None,Z,Nbins))
+print("FWHM {} Z {:0.04f} nbins".format(FWHM,Z,Nbins))
 
 inimg = nib.load(infile)
 inimgdata = inimg.get_fdata()
@@ -163,12 +165,12 @@ datafill = np.zeros_like(datalog)
 datalogmaskedcur = np.copy(datalogmasked)
 eps=0.01
 min_fill=0.5
-levelfwhm = args.fwhm
+levelfwhm = FWHM
 
 # Would like to re-use the input arguments easily, but may eventually
 # also wish to compare alternatives.
 def set_distrib_kde(datalogmaskedcur, Nbins, kernfn=kernelfntri,
-      binCentreLimits=args.binCentreLimits,
+      binCentreLimits=bcl,
       binPastLimits=args.binPastLimits):
   return distrib_kde(datalogmaskedcur, Nbins, kernfn=kernfn,
                      binCentreLimits=binCentreLimits,
