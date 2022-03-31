@@ -7,7 +7,7 @@ setup(
   author_email='i.malone@ucl.ac.uk',
   packages=['nxbc'],
   scripts=['bin/nxbc', 'bin/nxbc-sharpenonly'],
-  url='http://https://gitlab.drc.ion.ucl.ac.uk/malone/biascorrection_testbed.git',
+  url='https://github.com/imalone/nxbc.git',
   license='LICENSE.txt',
   classifiers=['License :: OSI Approved :: BSD License'],
   description='NX Bias Correction. NIfTI image bias correction, implementation of N3 (Sled) and N4 (Tustison) algorithms',
