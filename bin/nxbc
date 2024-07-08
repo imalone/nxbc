@@ -120,7 +120,7 @@ parser.add_argument('--fwhm', type=float,
                     help='FWHM for log histogram deconvolution')
 parser.add_argument('--nbins', type=int,
                     default=256,
-                    help='FWHM for log histogram deconvolution')
+                    help='Number of bins for histogram deconvolution')
 parser.add_argument('-Z', type=float,
                     default=0.01,
                     help='Noise estimate for Wiener deconvolution')
@@ -131,7 +131,7 @@ parser.add_argument('--maxlevel','-l', type=int,
                     default=1,
                     help='Maximum level. Fitting is either repeated for each level at FWHM=(starting FWHM)/level or with a subdivided mesh (see --subdivide)')
 parser.add_argument('--sub','-r', type=int,
-                    default=1,
+                    default=2,
                     help='sub sampling factor')
 parser.add_argument('--thr','-t', type=float,
                     default=1e-4,
@@ -224,6 +224,7 @@ mask = np.ones(inimgdata.shape) > 0
 if maskfile :
   inmask = nib.load(maskfile)
 if automask :
+  print("Mask registration, may take a few minutes")
   maskGenOut = maskGen(infile,None,automask)
   inmask = nib.load(maskGenOut)
   mask = np.logical_and(inmask.get_fdata() > 0, inimgdata > 0)
@@ -361,7 +362,6 @@ if args.kern == "gauss":
   chosenkernelfn = kernelfngauss
 
 for N in range(len(levels)):
-        
     if levels[N] < nextlevel:
       continue
     nextlevel = levels[N]
