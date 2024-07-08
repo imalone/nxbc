@@ -18,6 +18,7 @@ import nibabel as nib
 
 from nxbc.filter import *
 from nxbc.plotsupport import *
+from nxbc.masks import *
 from SplineSmooth3D.SplineSmooth3D import SplineSmooth3D, \
   SplineSmooth3DUnregularized
 from skimage import filters, restoration
@@ -39,7 +40,7 @@ def lambdaCheck(lambdaStr):
     return Lambda
 
 
-class MultilineFormatter(argparse.HelpFormatter):
+class MultilineFormatter(argparse.ArgumentDefaultsHelpFormatter):
     def _fill_text(self, text, width, indent):
         paragraphs = text.split('\n')
         multiline_text = ""
@@ -67,33 +68,44 @@ A reimplementation of N3 (Sled et al. 1998 https://doi.org/10.1109/42.668698) an
 
 Usage examples
 
+In N3 mode with automated mask (recommended), factor 2 subsampling and 75mm control point spacing:
 
-In N3 mode with default Otsu mask, factor 2 subsampling and 75mm control point
+%(prog)s -a niftytools -i image.nii.gz -o imagenorm.nii.gz
+
+
+In N3 mode with default Otsu mask, factor 4 subsampling and 150mm control point
 spacing:
 
-%(prog)s -r 2 -d 75 -i image.nii.gz -o imagenorm.nii.gz
+%(prog)s -r 4 -d 150 -i image.nii.gz -o imagenorm.nii.gz
 
 
 In N3 mode as above with a user-supplied mask:
 
-%(prog)s -r 2 -d 75 -i image.nii.gz -m mask.nii.gz -o imagenorm.nii.gz
+%(prog)s -i image.nii.gz -m mask.nii.gz -o imagenorm.nii.gz
+
+
+In N4 mode with automated mask, factor 2 subsampling, 4 fitting levels:
+
+%(prog)s -a niftytools --N4 -l4 -i image.nii.gz -o imagenorm.nii.gz
 
 
 In N4 mode with default Otsu mask, factor 2 subsampling, 4 fitting levels:
 
-%(prog)s -r 2 --N4 -l4 -i image.nii.gz -o imagenorm.nii.gz
-
-
-In N4 mode with default Otsu mask, factor 2 subsampling, 4 fitting levels:
-
-%(prog)s -r 2 --N4 -l4 -i image.nii.gz -m mask.nii.gz -o imagenorm.nii.gz
+%(prog)s --N4 -l4 -i image.nii.gz -m mask.nii.gz -o imagenorm.nii.gz
 """)
 parser.add_argument('--infile','-i', metavar='INIMAGE',
                     help='input file', required=True)
-parser.add_argument('--mask','-m', metavar='MASKIMAGE',
+parser_masks = parser.add_mutually_exclusive_group()
+parser_masks.add_argument('--automask','-a', metavar='METHOD',
+                    help='mask from registration template: '+
+                          ", ".join(maskGenList.keys()),
+                    choices=maskGenList.keys())
+parser_masks.add_argument('--mask','-m', metavar='MASKIMAGE',
                     help='optional mask')
 parser.add_argument('--outfile','-o', metavar='OUTIMAGE',
                     help='output file', required=True)
+parser.add_argument('--outmask', metavar='MASKIMAGE',
+                    help='save mask used', required=True)
 parser.add_argument('--bfield','-b', metavar='FIELDIMAGE',
                     help='optional output file')
 parser.add_argument('--otsu', action='store_true',
@@ -119,13 +131,13 @@ parser.add_argument('--maxlevel','-l', type=int,
                     default=1,
                     help='Maximum level. Fitting is either repeated for each level at FWHM=(starting FWHM)/level or with a subdivided mesh (see --subdivide)')
 parser.add_argument('--sub','-r', type=int,
-                    default=None,
+                    default=1,
                     help='sub sampling factor')
 parser.add_argument('--thr','-t', type=float,
                     default=1e-4,
                     help='stopping threshold to be used at each level')
 parser.add_argument('--dist','-d', type=float,
-                    default=150,
+                    default=75,
                     help='spline spacing (mm)')
 parser.add_argument('--ITKspacing','-I', action='store_true',
                     help='Use ITK spacing, adjust so single interval over '
@@ -154,6 +166,8 @@ parser.add_argument('--reduceFOV', action='store_true',
 parser.add_argument('--kern', choices=['tri','gauss'],
                     help="Kernel function to use (tri => Parzen,"+\
                     "gauss => gauss KDE)", default='tri')
+parser.add_argument('--reportingLevel', choices=[0,1],
+                    help="Reporting level for timing, 0 or 1", default=0)
 args = parser.parse_args()
 
 infile = args.infile
@@ -162,6 +176,8 @@ outfieldfile = args.bfield
 Z=args.Z
 bcl=not args.binEndLimits
 maskfile = args.mask
+automask = args.automask
+outmaskfile = args.outmask
 withotsu = args.otsu
 pctrim = args.pctrim
 reduceFOV = args.reduceFOV
@@ -179,6 +195,7 @@ ITKspacing=args.ITKspacing
 unregularized=args.unregularized
 maxlevel=args.maxlevel
 
+
 if args.N4:
   ITKspacing=True
   subdivide=True
@@ -187,7 +204,7 @@ if args.N4:
   if maxlevel == 1:
     print("--N4 was specified, but maxlevel (-l) is 1, this may be a mistake")
 
-if (maskfile is None):
+if (maskfile is None and automask is None):
   withotsu = True
 
 print("Running, input {}, output {}, mask {}".format(
@@ -206,7 +223,30 @@ inimgdata = inimg.get_fdata()
 mask = np.ones(inimgdata.shape) > 0
 if maskfile :
   inmask = nib.load(maskfile)
+if automask :
+  maskGenOut = maskGen(infile,None,automask)
+  inmask = nib.load(maskGenOut)
   mask = np.logical_and(inmask.get_fdata() > 0, inimgdata > 0)
+
+# It might be better to do the Otsu and PCtrim after subsampling,
+# but then output mask resolution is different to the original
+# image. Both are threshold-based in any case, so shouldn't actually
+# change much.
+if withotsu :
+  _thresh = filters.threshold_otsu(inimgdata[mask])
+  mask = np.logical_and(inimgdata > _thresh, mask)
+
+if pctrim :
+  _hist, _edges = np.histogram(inimgdata[mask], bins=256)
+  _cdf = np.cumsum(_hist) / float(np.sum(_hist))
+  _pcthresh = 1e-3
+  _pctrimthreshbin = np.searchsorted(_cdf, _pcthresh)
+  _thresh = _edges[_pctrimthreshbin+1]
+  mask = np.logical_and(inimgdata > _thresh, mask)
+
+if outmaskfile is not None:
+  imgmfnii = nib.Nifti1Image(mask.astype(np.byte), inimg.affine) #, inimg.header)
+  nib.save(imgmfnii,outmaskfile)
 
 dataSub = inimgdata
 dataVoxSize = nib.affines.voxel_sizes(inimg.affine)
@@ -233,17 +273,6 @@ if ITKspacing:
     dataSubVoxSize = 1 / (np.array(dataSub.shape) -1)
     dataVoxSize = dataSubVoxSize / subsamp
 
-if withotsu :
-  _thresh = filters.threshold_otsu(dataSub[mask])
-  mask = np.logical_and(dataSub > _thresh, mask)
-
-if pctrim :
-  _hist, _edges = np.histogram(dataSub[mask], bins=256)
-  _cdf = np.cumsum(_hist) / float(np.sum(_hist))
-  _pcthresh = 1e-3
-  _pctrimthreshbin = np.searchsorted(_cdf, _pcthresh)
-  _thresh = _edges[_pctrimthreshbin+1]
-  mask = np.logical_and(dataSub > _thresh, mask)
 
 bboxFOV=None
 if reduceFOV:
@@ -332,8 +361,7 @@ if args.kern == "gauss":
   chosenkernelfn = kernelfngauss
 
 for N in range(len(levels)):
-    if N%1 == 0 :
-        print("{}/{}".format(N,len(levels)))
+        
     if levels[N] < nextlevel:
       continue
     nextlevel = levels[N]
@@ -356,7 +384,6 @@ for N in range(len(levels)):
           print("Retrying picksdremmeanvar")
       thisFWHM = thisSD * math.sqrt(8*math.log(2))
     thisSD = thisFWHM /  math.sqrt(8*math.log(2))
-    print ("reduced sigma {} fwhm {}".format(thisSD, thisFWHM))
     mfilt, mfiltx, mfiltmid, mfiltbins = symGaussFilt(thisSD, histbinwidth)
 
     histfilt = wiener_filter_withpad(hist, mfilt, mfiltmid, Z)
@@ -406,7 +433,7 @@ for N in range(len(levels)):
 
     # Need masking!
     datafill[mask] = logbc
-    splsm3d.fit(datafill, reportingLevel=1)
+    splsm3d.fit(datafill, reportingLevel=args.reportingLevel)
     logbcsmfull = splsm3d.predict()
     if savefields:
       try:
@@ -435,7 +462,8 @@ for N in range(len(levels)):
     ratiomean = bcratio.mean()
     ratiosd = bcratio.std()
     conv = ratiosd / ratiomean
-    print(conv,ratiosd,ratiomean)
+    print("{}/{} convergence {:.5g}, ratiosd {:.5g}, ratiomean {:.05g}".
+          format(N,len(levels),conv,ratiosd,ratiomean))
     if accumulate:
       datalogmaskedcur = datalogmaskedcur - logbcsm
       if controlField is None:
