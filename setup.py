@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
   name='nxbc',
-  version='0.1.1',
+  version='0.1.2',
   author='Ian Malone',
   author_email='i.malone@ucl.ac.uk',
   packages=['nxbc'],
