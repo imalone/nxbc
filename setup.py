@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
   name='nxbc',
-  version='0.1.0',
+  version='0.1.1',
   author='Ian Malone',
   author_email='i.malone@ucl.ac.uk',
   packages=['nxbc'],
@@ -11,7 +11,8 @@ setup(
   license='LICENSE.txt',
   classifiers=['License :: OSI Approved :: BSD License'],
   description='NX Bias Correction. NIfTI image bias correction, implementation of N3 (Sled) and N4 (Tustison) algorithms',
-  long_description=open('README.txt').read(),
+  long_description=open('README.md').read(),
+  long_description_content_type='text/markdown',
   install_requires=[
     "SplineSmooth3D >= 0.1.0",
     "nibabel >= 2.5.1",
