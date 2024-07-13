@@ -40,7 +40,7 @@ def maskGenFlirt(inImg, outImg):
     cmdMA = shutil.which('fslmaths')
     cmdCX = shutil.which('convert_xfm')
     if cmdFL is None:
-        raise RuntimeError("reg_aladin command not found")
+        raise RuntimeError("flirt command not found")
     tmpAff=tempfile.NamedTemporaryFile(suffix=".mat", prefix="masks-")
     tmpRes=tempfile.NamedTemporaryFile(suffix=".nii.gz", prefix="masks-")
     args = [cmdFL,"-ref",refImg,"-in",inImg,"-omat",tmpAff.name,"-usesqform",
@@ -94,7 +94,7 @@ def maskGenRegAlad(inImg,outImg, replication=False):
     except KeyError:
         raise RuntimeError("Need FSL installed and environment variable"
                            "FSLDIR set to locate templates")
-    cmdRA = shutil.which('reg_aladin.bin')
+    cmdRA = shutil.which('reg_aladin')
     cmdRR = shutil.which('reg_resample')
     cmdSM = shutil.which('seg_maths')
     if cmdRA is None:

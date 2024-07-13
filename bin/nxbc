@@ -221,12 +221,11 @@ inimg = nib.load(infile)
 inimgdata = inimg.get_fdata()
 
 mask = np.ones(inimgdata.shape) > 0
-if maskfile :
-  inmask = nib.load(maskfile)
 if automask :
   print("Mask registration, may take a few minutes")
-  maskGenOut = maskGen(infile,None,automask)
-  inmask = nib.load(maskGenOut)
+  maskfile = maskGen(infile,None,automask)
+if maskfile :
+  inmask = nib.load(maskfile)
   mask = np.logical_and(inmask.get_fdata() > 0, inimgdata > 0)
 
 # It might be better to do the Otsu and PCtrim after subsampling,
