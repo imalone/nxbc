@@ -6,7 +6,7 @@ Requires https://github.com/imalone/SplineSmooth3D
 
 Straightforward N3 with a default Otsu mask:
 
-nxbc -a niftytools -i image.nii.gz -o imagenorm.nii.gz
+nxbc -i image.nii.gz -o imagenorm.nii.gz
 
 Recommended N3 using brain masking:
 

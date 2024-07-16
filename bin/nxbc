@@ -105,7 +105,7 @@ parser_masks.add_argument('--mask','-m', metavar='MASKIMAGE',
 parser.add_argument('--outfile','-o', metavar='OUTIMAGE',
                     help='output file', required=True)
 parser.add_argument('--outmask', metavar='MASKIMAGE',
-                    help='save mask used', required=True)
+                    help='save mask used', required=False)
 parser.add_argument('--bfield','-b', metavar='FIELDIMAGE',
                     help='optional output file')
 parser.add_argument('--otsu', action='store_true',
@@ -148,16 +148,16 @@ parser.add_argument('--saveplots', default=None, type=str,
                     help="directory name to save histogram plots")
 parser.add_argument('--savefields', default=None, type=str,
                     help="directory name to save intermediate field estimates")
-parser.add_argument('--accumulate', action='store_true',
-                    help="use accumulated bias field fitting (N4 style)")
 parser.add_argument('--Lambda', '-L', default=1.0, type=lambdaCheck,
                     help="spline smoothing lambda (image level)")
-parser.add_argument('--subdivide', action='store_true',
-                    help="subdivide mesh at each level")
-parser.add_argument('--unregularized', action='store_true',
-                    help="subdivide mesh at each level")
 parser.add_argument('--N4', action='store_true',
                     help='Use N4 features: ITKspacing, subdivide, unregularized, accumulate')
+parser.add_argument('--subdivide', action='store_true',
+                    help="subdivide mesh at each level")
+parser.add_argument('--accumulate', action='store_true',
+                    help="use accumulated bias field fitting")
+parser.add_argument('--unregularized', action='store_true',
+                    help="subdivide mesh at each level, fitting current mesh resolution")
 parser.add_argument('--costDerivative', type=int, default=2,
                     help="derivative order for cost function")
 parser.add_argument('--reduceFOV', action='store_true',
@@ -195,14 +195,14 @@ ITKspacing=args.ITKspacing
 unregularized=args.unregularized
 maxlevel=args.maxlevel
 
-
 if args.N4:
   ITKspacing=True
   subdivide=True
   unregularized=True
   accumulate=True
   if maxlevel == 1:
-    print("--N4 was specified, but maxlevel (-l) is 1, this may be a mistake")
+    raise RuntimeWarning("--N4 was specified, but maxlevel (-l) is 1, this may be a mistake")
+
 
 if (maskfile is None and automask is None):
   withotsu = True
@@ -359,11 +359,9 @@ controlField=None
 chosenkernelfn = kernelfntri
 if args.kern == "gauss":
   chosenkernelfn = kernelfngauss
-
 for N in range(len(levels)):
     if levels[N] < nextlevel:
       continue
-    nextlevel = levels[N]
     hist,histvaledge,histval,histbinwidth = \
       distrib_kde(datalogmaskedcur, Nbins, kernfn=chosenkernelfn,
                   binCentreLimits=bcl)
@@ -434,6 +432,7 @@ for N in range(len(levels)):
     datafill[mask] = logbc
     splsm3d.fit(datafill, reportingLevel=args.reportingLevel)
     logbcsmfull = splsm3d.predict()
+    newP = splsm3d.P
     if savefields:
       try:
         os.mkdir(savefields)
@@ -466,15 +465,15 @@ for N in range(len(levels)):
     if accumulate:
       datalogmaskedcur = datalogmaskedcur - logbcsm
       if controlField is None:
-        controlField  = splsm3d.P.copy()
+        controlField  = newP.copy()
       else:
-        controlField += splsm3d.P
+        controlField += newP
     else:
       datalogmaskedcur = datalogmasked - logbcsm
     datalogcur[mask] = datalogmaskedcur
     if (conv < stopthr):
       nextlevel = levels[N] + 1
-    if subdivide and (N+1)<len(levels) and N%steps == 0:
+    if subdivide and (N+1)<len(levels) and (nextlevel>levels[N] or levels[N+1] != levels[N]):
       print ("subdividing")
       # Applies to both cumulative and normal iterative
       # mode, in normal iterative mode we're just upgrading
