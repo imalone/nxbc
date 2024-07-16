@@ -14,7 +14,7 @@ setup(
   long_description=open('README.md').read(),
   long_description_content_type='text/markdown',
   install_requires=[
-    "SplineSmooth3D >= 0.1.0",
+    "SplineSmooth3D >= 0.1.1",
     "nibabel >= 2.5.1",
     "scikit_image >= 0.15.0",
     "matplotlib >= 3.1.1",

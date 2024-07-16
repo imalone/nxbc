@@ -156,8 +156,11 @@ parser.add_argument('--subdivide', action='store_true',
                     help="subdivide mesh at each level")
 parser.add_argument('--accumulate', action='store_true',
                     help="use accumulated bias field fitting")
-parser.add_argument('--unregularized', action='store_true',
+parser_unreg = parser.add_mutually_exclusive_group()
+parser_unreg.add_argument('--unregularized', action='store_true',
                     help="subdivide mesh at each level, fitting current mesh resolution")
+parser_unreg.add_argument('--unregmultilevel', action='store_true',
+                    help="subdivide mesh at each level, multilevel fitting")
 parser.add_argument('--costDerivative', type=int, default=2,
                     help="derivative order for cost function")
 parser.add_argument('--reduceFOV', action='store_true',
@@ -193,6 +196,7 @@ accumulate=args.accumulate
 subdivide=args.subdivide
 ITKspacing=args.ITKspacing
 unregularized=args.unregularized
+unregmultilevel=args.unregmultilevel
 maxlevel=args.maxlevel
 
 if args.N4:
@@ -202,7 +206,8 @@ if args.N4:
   accumulate=True
   if maxlevel == 1:
     raise RuntimeWarning("--N4 was specified, but maxlevel (-l) is 1, this may be a mistake")
-
+  if unregmultilevel:
+    raise RuntimeWarning("--unregmultilevel is ignored if --N4 specified.")
 
 if (maskfile is None and automask is None):
   withotsu = True
@@ -322,10 +327,16 @@ if not subdivide:
 else:
   levelfwhm = args.fwhm * np.ones(maxlevel)
 
-if unregularized:
+if unregularized or unregmultilevel:
   splsm3d = SplineSmooth3DUnregularized(datalog, dataSubVoxSize,
                                         spacing, domainMethod="minc",
                                         mask=mask)
+  if unregmultilevel:
+    # Need a smoother that remains at first level to do the
+    # multilevel fit
+    auxsmooth = SplineSmooth3DUnregularized(datalog, dataSubVoxSize,
+                                            spacing, domainMethod="minc",
+                                            mask=mask)
 else:
   if subsamp:
     try:
@@ -430,9 +441,13 @@ for N in range(len(levels)):
 
     # Need masking!
     datafill[mask] = logbc
-    splsm3d.fit(datafill, reportingLevel=args.reportingLevel)
-    logbcsmfull = splsm3d.predict()
-    newP = splsm3d.P
+    if unregmultilevel:
+      tmpsmooth = auxsmooth.solveMultiLevel(datafill,levels=levels[N]+1)
+    else:
+      splsm3d.fit(datafill, reportingLevel=args.reportingLevel)
+      tmpsmooth = splsm3d
+    logbcsmfull = tmpsmooth.predict()
+    newP = tmpsmooth.P
     if savefields:
       try:
         os.mkdir(savefields)
