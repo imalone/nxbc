@@ -6,17 +6,29 @@ Requires https://github.com/imalone/SplineSmooth3D
 
 Straightforward N3 with a default Otsu mask:
 
-nxbc -i image.nii.gz -o imagenorm.nii.gz
+``nxbc -i image.nii.gz -o imagenorm.nii.gz``
 
 Recommended N3 using brain masking:
 
-nxbc -a niftytools -i image.nii.gz -o imagenorm.nii.gz
+``nxbc -a niftytools -i image.nii.gz -o imagenorm.nii.gz``
 
 This mode requires FSL to be installed, as well as [NiftyReg](https://github.com/KCL-BMEIS/niftyreg) and [NiftySeg](https://github.com/KCL-BMEIS/NiftySeg).
 
 Alternative modes for automated brain masking are -a flirt (requires FSL only) and -a ants (requires python packages antspyx and templateflow). These are less well tested and it is worth checking the mask generated (also possible for -a niftytools):
 
-nxbc -a ants -i image.nii.gz -o imagenorm.nii.gz --outmask imagemask.nii.gz
+``nxbc -a ants -i image.nii.gz -o imagenorm.nii.gz --outmask imagemask.nii.gz``
+
+## Installation
+
+nxbc is available via pip:
+
+``pip install nxbc``
+
+If you want to use ``-a ants`` you must also install antspyx and templateflow, ``pip install antspyx templateflow``.
+
+To use ``-a fsl`` FSL must be installed, instructions can be found [here](https://fsl.fmrib.ox.ac.uk/fsl/docs)
+
+To use ``-a niftytools``, [NiftyReg](https://github.com/KCL-BMEIS/niftyreg) and [NiftySeg](https://github.com/KCL-BMEIS/NiftySeg) are required, these can be built using CMake following the instructions from the NiftySeg README.
 
 ## Options
 
